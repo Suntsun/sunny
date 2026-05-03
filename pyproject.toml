@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sunny"
+version = "0.1.0"
+description = "AI-powered system automation assistant"
+requires-python = ">=3.11"
+dependencies = [
+    "typer",
+    "rich",
+    "pydantic",
+    "sqlite-utils",
+    "ollama",
+    "pyautogui",
+    "pywinauto",
+    "pillow",
+    "pytesseract",
+    "mss",
+    "playwright",
+    "python-dotenv",
+]
+
+[project.scripts]
+sunny = "sunny.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]

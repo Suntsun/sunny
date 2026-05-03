@@ -1,0 +1,1 @@
+"""Confirmation module stub."""
