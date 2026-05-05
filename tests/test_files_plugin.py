@@ -105,7 +105,7 @@ def test_search_recursive(tmp_path, plugin):
     d = tmp_path / "sub"
     d.mkdir()
     (d / "a.txt").write_text("x")
-    r = plugin.execute("search", {"directory": str(tmp_path), "pattern": "*.txt"}, {})
+    r = plugin.execute("search", {"directory": str(tmp_path), "pattern": "*.txt", "recursive": True}, {})
     assert len(r.data) == 1
 
 

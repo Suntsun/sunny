@@ -25,10 +25,12 @@ class FilesPlugin(PluginBase):
             "write_file": self._write_file,
             "list_directory": self._list_directory,
             "create_directory": self._create_directory,
+            "tree_directory": self._tree_directory,
             "move": self._move,
             "copy": self._copy,
             "delete": self._delete,
             "search": self._search,
+            "delete_matching": self._delete_matching,
             "get_info": self._get_info,
             "empty_recycle_bin": self._empty_recycle_bin,
             "restore_from_recycle_bin": self._restore_from_recycle_bin,
@@ -54,7 +56,7 @@ class FilesPlugin(PluginBase):
         return res
 
     def _resolve_path(self, path: str) -> Path:
-        """Expande variables de entorno y ~ antes de usar la ruta."""
+        """Resuelve rutas expandiendo variables de entorno y usuario."""
         expanded = os.path.expandvars(path)
         expanded = os.path.expanduser(expanded)
         return Path(expanded)
@@ -103,15 +105,41 @@ class FilesPlugin(PluginBase):
             "total_entries": len(directories) + len(files),
         }
 
-    def _move(self, src: str, dst: str) -> Dict[str, Any]:
+    def _find_free_name(self, dst: Path) -> Path:
+        """Devuelve un path libre añadiendo (1), (2)... antes de la extensión."""
+        stem = dst.stem
+        suffix = dst.suffix
+        parent = dst.parent
+        counter = 1
+        candidate = parent / f"{stem}({counter}){suffix}"
+        while candidate.exists():
+            counter += 1
+            candidate = parent / f"{stem}({counter}){suffix}"
+        return candidate
+
+    def _move(self, src: str, dst: str, overwrite: bool = False) -> Dict[str, Any]:
         src_p = self._resolve_path(src)
         dst_p = self._resolve_path(dst)
+        if dst_p.exists() and not overwrite:
+            raise FileExistsError(str(dst_p))
+        if dst_p.exists() and overwrite:
+            if dst_p.is_dir():
+                shutil.rmtree(dst_p)
+            else:
+                dst_p.unlink()
         shutil.move(str(src_p), str(dst_p))
         return {"src": str(src_p), "dst": str(dst_p)}
 
-    def _copy(self, src: str, dst: str) -> Dict[str, Any]:
+    def _copy(self, src: str, dst: str, overwrite: bool = False) -> Dict[str, Any]:
         src_p = self._resolve_path(src)
         dst_p = self._resolve_path(dst)
+        if dst_p.exists() and not overwrite:
+            raise FileExistsError(str(dst_p))
+        if dst_p.exists() and overwrite:
+            if dst_p.is_dir():
+                shutil.rmtree(dst_p)
+            else:
+                dst_p.unlink()
         if src_p.is_dir():
             shutil.copytree(src_p, dst_p)
         else:
@@ -123,9 +151,56 @@ class FilesPlugin(PluginBase):
         send2trash(str(p))
         return {"path": str(p), "trashed": True}
 
-    def _search(self, directory: str, pattern: str) -> List[str]:
+    def _tree_directory(self, path: str, max_depth: int = 3) -> Dict[str, Any]:
+        p = self._resolve_path(path)
+
+        def _build(current: Path, depth: int) -> Dict[str, Any]:
+            node: Dict[str, Any] = {"name": current.name, "path": str(current), "children": []}
+            if depth == 0:
+                return node
+            try:
+                entries = sorted(current.iterdir(), key=lambda e: (e.is_file(), e.name.lower()))
+                for entry in entries:
+                    if entry.is_dir():
+                        node["children"].append(_build(entry, depth - 1))
+                    else:
+                        node["children"].append({
+                            "name": entry.name,
+                            "path": str(entry),
+                            "size": entry.stat().st_size,
+                            "children": None,
+                        })
+            except PermissionError:
+                pass
+            return node
+
+        return _build(p, max_depth)
+
+    def _search(self, directory: str, pattern: str, recursive: bool = False, type: str = "file", empty_only: bool = False) -> List[str]:
         d = self._resolve_path(directory)
-        return [str(p.absolute()) for p in d.rglob(pattern) if p.is_file()]
+        matches = d.rglob(pattern) if recursive else d.glob(pattern)
+        if type == "directory":
+            dirs = [p for p in matches if p.is_dir()]
+            if empty_only:
+                dirs = [p for p in dirs if not any(p.iterdir())]
+            return [str(p.absolute()) for p in dirs]
+        files = [p for p in matches if p.is_file()]
+        if empty_only:
+            files = [p for p in files if p.stat().st_size == 0]
+        return [str(p.absolute()) for p in files]
+
+    def _delete_matching(self, directory: str, pattern: str, recursive: bool = False, type: str = "file", empty_only: bool = False) -> Dict[str, Any]:
+        """Busca y elimina (papelera) entradas que coinciden con el patrón."""
+        paths = self._search(directory, pattern, recursive=recursive, type=type, empty_only=empty_only)
+        deleted = []
+        errors = []
+        for p in paths:
+            try:
+                send2trash(p)
+                deleted.append(p)
+            except Exception as e:
+                errors.append({"path": p, "error": str(e)})
+        return {"deleted": deleted, "errors": errors, "count": len(deleted)}
 
     def _get_info(self, path: str) -> Dict[str, Any]:
         p = self._resolve_path(path)

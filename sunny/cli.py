@@ -42,12 +42,17 @@ def _build_registry() -> PluginRegistry:
     return registry
 
 
-def _process_one(user_input: str, registry: PluginRegistry) -> None:
+AUTO_CONFIRM_THRESHOLD = 0.9
+
+
+def _process_one(user_input: str, registry: PluginRegistry, yes: bool = False) -> None:
     """Procesa un turno completo."""
     try:
         comp_result, _ = _comprehension.comprehend(user_input)
 
-        if not _confirmation.confirm_comprehension(comp_result):
+        # --yes: auto-confirmar comprensión si confianza alta y no necesita aclaración
+        auto = yes and comp_result.confidence >= AUTO_CONFIRM_THRESHOLD and not comp_result.needs_clarification
+        if not auto and not _confirmation.confirm_comprehension(comp_result):
             if comp_result.needs_clarification:
                 _reporter.report_clarification(comp_result)
             else:
@@ -94,7 +99,7 @@ def _process_one(user_input: str, registry: PluginRegistry) -> None:
         log.error("cli_unexpected_error", error_type=type(e).__name__, error_msg=str(e))
 
 
-def _repl(registry: PluginRegistry) -> None:
+def _repl(registry: PluginRegistry, yes: bool = False) -> None:
     """Modo interactivo."""
     console.print("[green]sunny REPL[/green] — escribe tu orden. 'exit' / 'quit' / 'salir' / Ctrl+C para salir.")
     while True:
@@ -110,7 +115,7 @@ def _repl(registry: PluginRegistry) -> None:
             console.print("[dim]Adiós.[/dim]")
             break
 
-        _process_one(user_input, registry)
+        _process_one(user_input, registry, yes=yes)
 
 
 @app.callback(invoke_without_command=True)
@@ -119,12 +124,14 @@ def main(
     order: Optional[str] = typer.Argument(None),
     new_session: bool = typer.Option(False, "--new-session"),
     end_session: bool = typer.Option(False, "--end-session"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Mostrar logs INFO en consola"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Auto-confirmar comprensión si confianza ≥ 90% (no aplica a planes destructivos)"),
 ) -> None:
     """Entrada principal CLI."""
     if ctx.invoked_subcommand is not None:
         return
 
-    configure_logging()
+    configure_logging(verbose=verbose)
     init_db()
 
     if end_session:
@@ -141,9 +148,9 @@ def main(
     registry = _build_registry()
 
     if order:
-        _process_one(order, registry)
+        _process_one(order, registry, yes=yes)
     else:
-        _repl(registry)
+        _repl(registry, yes=yes)
 
 
 if __name__ == "__main__":

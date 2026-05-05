@@ -6,11 +6,13 @@ from uuid import uuid4
 from sunny.core.memory import sqlite as memory
 from sunny.core.logging.logger import get_logger, bind_session, unbind_session
 
-logger = get_logger("sunny.core.session.manager")
-
-CONTEXT_WINDOW: int = 5
+CONTEXT_WINDOW: int = 3
 MAX_TURNS: int = 100
 ACTIVE_SESSION_KEY: str = "active_session_id"
+
+
+def _logger():
+    return get_logger("sunny.core.session.manager")
 
 
 def get_active_session_id() -> Optional[str]:
@@ -22,7 +24,7 @@ def get_or_create_active_session() -> str:
 
     if sid and memory.session_exists(sid):
         bind_session(sid)
-        logger.info("session_resumed", extra={"session_id": sid})
+        _logger().info("session_resumed", extra={"session_id": sid})
         return sid
 
     new_id = str(uuid4())
@@ -30,7 +32,7 @@ def get_or_create_active_session() -> str:
     memory.set_preference(ACTIVE_SESSION_KEY, new_id)
 
     bind_session(new_id)
-    logger.info("session_created", extra={"session_id": new_id})
+    _logger().info("session_created", extra={"session_id": new_id})
 
     return new_id
 
@@ -41,7 +43,7 @@ def force_new_session() -> str:
     memory.set_preference(ACTIVE_SESSION_KEY, new_id)
 
     bind_session(new_id)
-    logger.info("session_forced_new", extra={"session_id": new_id})
+    _logger().info("session_forced_new", extra={"session_id": new_id})
 
     return new_id
 
@@ -52,7 +54,7 @@ def end_session() -> None:
     memory.delete_preference(ACTIVE_SESSION_KEY)
     unbind_session()
 
-    logger.info("session_ended", extra={"session_id": sid})
+    _logger().info("session_ended", extra={"session_id": sid})
 
 
 def append_turn(user_msg: str, assistant_msg: str) -> dict:
@@ -69,7 +71,7 @@ def append_turn(user_msg: str, assistant_msg: str) -> dict:
 
         bind_session(new_id)
 
-        logger.warning(
+        _logger().warning(
             "session_rotated",
             extra={
                 "old_session_id": sid,

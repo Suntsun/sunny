@@ -204,3 +204,80 @@ def test_report_execution_renders_semantic_for_list_directory(monkeypatch):
     output = buf.getvalue()
     assert "carpeta_x" in output
     assert "archivo_y.txt" in output
+
+
+def test_report_execution_renders_search(monkeypatch):
+    import io
+    buf = io.StringIO()
+    fake_console = reporter.Console(file=buf, force_terminal=True, width=200)
+    monkeypatch.setattr(reporter, "console", fake_console)
+
+    step = StepExecutionResult(
+        step_id="s1", plugin="files", action="search",
+        success=True, data=["C:\\Users\\Mahes\\Desktop\\saludo.txt"],
+        latency_ms=5,
+    )
+    result = ExecutionResult(
+        plan_intent="files", success=True, steps=[step],
+        total_latency_ms=5, early_stopped=False,
+    )
+    reporter.report_execution(result)
+    output = buf.getvalue()
+    assert "saludo.txt" in output
+
+
+def test_report_execution_renders_get_info_existing_file(monkeypatch):
+    import io
+    buf = io.StringIO()
+    fake_console = reporter.Console(file=buf, force_terminal=True, width=200)
+    monkeypatch.setattr(reporter, "console", fake_console)
+
+    step = StepExecutionResult(
+        step_id="s1", plugin="files", action="get_info",
+        success=True,
+        data={
+            "path": "C:\\Users\\Mahes\\Desktop\\nota.txt",
+            "exists": True,
+            "is_file": True,
+            "is_dir": False,
+            "size": 1024,
+            "modified_ts": 1700000000.0,
+        },
+        latency_ms=1,
+    )
+    result = ExecutionResult(
+        plan_intent="files", success=True, steps=[step],
+        total_latency_ms=1, early_stopped=False,
+    )
+    reporter.report_execution(result)
+    output = buf.getvalue()
+    assert "nota.txt" in output
+    assert "1.0 KB" in output
+
+
+def test_report_execution_renders_get_info_missing(monkeypatch):
+    import io
+    buf = io.StringIO()
+    fake_console = reporter.Console(file=buf, force_terminal=True, width=200)
+    monkeypatch.setattr(reporter, "console", fake_console)
+
+    step = StepExecutionResult(
+        step_id="s1", plugin="files", action="get_info",
+        success=True,
+        data={
+            "path": "C:\\no\\existe.txt",
+            "exists": False,
+            "is_file": False,
+            "is_dir": False,
+            "size": 0,
+            "modified_ts": None,
+        },
+        latency_ms=1,
+    )
+    result = ExecutionResult(
+        plan_intent="files", success=True, steps=[step],
+        total_latency_ms=1, early_stopped=False,
+    )
+    reporter.report_execution(result)
+    output = buf.getvalue()
+    assert "No existe" in output

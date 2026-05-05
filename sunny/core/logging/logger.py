@@ -34,6 +34,19 @@ _CONFIG_LOCK = threading.Lock()
 
 _SESSION_ID_VAR = contextvars.ContextVar("session_id", default=None)
 
+# Configuración mínima de structlog al importar el módulo.
+# Garantiza que get_logger() siempre usa stdlib (nunca PrintLogger),
+# incluso antes de que configure_logging() añada los handlers.
+structlog.configure(
+    processors=[
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+    ],
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=False,
+)
+
 # -----------------------------------------------------------------------------
 # Sanitización
 # -----------------------------------------------------------------------------
@@ -117,6 +130,7 @@ class DateAwareRotatingFileHandler(logging.handlers.RotatingFileHandler):
                 self.stream.close()
             self.stream = self._open()
         super().emit(record)
+        self.flush()
 
 
 # -----------------------------------------------------------------------------
@@ -135,7 +149,7 @@ def _reset_logging() -> None:
         _SESSION_ID_VAR.set(None)
 
 
-def configure_logging(log_dir: Optional[Path] = None, level: str = "INFO") -> None:
+def configure_logging(log_dir: Optional[Path] = None, level: str = "INFO", verbose: bool = False) -> None:
     global _LOGGER_CONFIGURED
 
     lvl = getattr(logging, level.upper(), None)
@@ -160,32 +174,41 @@ def configure_logging(log_dir: Optional[Path] = None, level: str = "INFO") -> No
             _sanitize_event_dict,
         ]
 
+        console_processors = shared_processors + [
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter
+        ]
+
         structlog.configure(
-            processors=shared_processors + [
-                structlog.stdlib.ProcessorFormatter.wrap_for_formatter
-            ],
+            processors=console_processors,
             logger_factory=structlog.stdlib.LoggerFactory(),
             wrapper_class=structlog.stdlib.BoundLogger,
             cache_logger_on_first_use=False,
         )
 
-        formatter = structlog.stdlib.ProcessorFormatter(
+        json_formatter = structlog.stdlib.ProcessorFormatter(
             processor=structlog.processors.JSONRenderer(),
             foreign_pre_chain=shared_processors,
         )
 
+        # Handler archivo: siempre INFO, JSON
         file_handler = DateAwareRotatingFileHandler(path)
         file_handler.setLevel(lvl)
-        file_handler.setFormatter(formatter)
-
-        stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setLevel(logging.WARNING)
-        stream_handler.setFormatter(formatter)
+        file_handler.setFormatter(json_formatter)
 
         root = logging.getLogger()
         root.setLevel(lvl)
         root.addHandler(file_handler)
-        root.addHandler(stream_handler)
+
+        # Handler consola: solo si --verbose
+        if verbose:
+            console_formatter = structlog.stdlib.ProcessorFormatter(
+                processor=structlog.dev.ConsoleRenderer(colors=True),
+                foreign_pre_chain=shared_processors,
+            )
+            stream_handler = logging.StreamHandler(sys.stdout)
+            stream_handler.setLevel(logging.INFO)
+            stream_handler.setFormatter(console_formatter)
+            root.addHandler(stream_handler)
 
         _LOGGER_CONFIGURED = True
 

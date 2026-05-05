@@ -131,15 +131,15 @@ def test_main_with_order_calls_process_one(monkeypatch):
     ctx = MagicMock()
     ctx.invoked_subcommand = None
 
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(cli, "configure_logging", lambda **kw: None)
     monkeypatch.setattr(cli, "init_db", lambda: None)
     monkeypatch.setattr(cli.session, "get_or_create_active_session", lambda: "sid")
     monkeypatch.setattr(cli, "_build_registry", lambda: None)
 
     called = []
-    monkeypatch.setattr(cli, "_process_one", lambda u, r: called.append(u))
+    monkeypatch.setattr(cli, "_process_one", lambda u, r, yes=False: called.append(u))
 
-    cli.main(ctx=ctx, order="hola", new_session=False, end_session=False)
+    cli.main(ctx=ctx, order="hola", new_session=False, end_session=False, verbose=False, yes=False)
 
     assert "hola" in called
 
@@ -148,13 +148,13 @@ def test_main_end_session_calls_session_end(monkeypatch):
     ctx = MagicMock()
     ctx.invoked_subcommand = None
 
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(cli, "configure_logging", lambda **kw: None)
     monkeypatch.setattr(cli, "init_db", lambda: None)
 
     called = []
     monkeypatch.setattr(cli.session, "end_session", lambda: called.append(True))
 
-    cli.main(ctx=ctx, order=None, new_session=False, end_session=True)
+    cli.main(ctx=ctx, order=None, new_session=False, end_session=True, verbose=False)
 
     assert called
 
@@ -163,10 +163,10 @@ def test_main_new_session_forces_new(monkeypatch):
     ctx = MagicMock()
     ctx.invoked_subcommand = None
 
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(cli, "configure_logging", lambda **kw: None)
     monkeypatch.setattr(cli, "init_db", lambda: None)
     monkeypatch.setattr(cli.session, "force_new_session", lambda: "new-id")
     monkeypatch.setattr(cli, "_build_registry", lambda: None)
-    monkeypatch.setattr(cli, "_process_one", lambda u, r: None)
+    monkeypatch.setattr(cli, "_process_one", lambda u, r, yes=False: None)
 
-    cli.main(ctx=ctx, order="hi", new_session=True, end_session=False)
+    cli.main(ctx=ctx, order="hi", new_session=True, end_session=False, verbose=False, yes=False)

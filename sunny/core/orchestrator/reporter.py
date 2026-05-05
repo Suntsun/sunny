@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from pathlib import Path
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -92,17 +94,59 @@ def _render_semantic_output(result: ExecutionResult) -> None:
         action = step.action
 
         data = getattr(step, "data", None)
-        if not data:
+        if data is None:
             continue
 
         if step.plugin == "files" and step.action == "list_directory":
             _render_list_directory(data)
-        
+        elif plugin == "files" and action == "search":
+            _render_search(data)
+        elif plugin == "files" and action == "read_file":
+            _render_read_file(data, step)
+        elif plugin == "files" and action == "tree_directory":
+            _render_tree_directory(data)
+        elif plugin == "files" and action == "get_info":
+            _render_get_info(data)
+        elif plugin == "os_control" and action == "get_system_info":
+            _render_get_system_info(data)
+        elif plugin == "os_control" and action == "list_processes":
+            _render_list_processes(data)
+
+def _render_get_info(data: dict) -> None:
+    """Renderiza información de un archivo o carpeta."""
+    import datetime
+    exists = data.get("exists", False)
+    path = data.get("path", "")
+
+    if not exists:
+        console.print(f"\n[yellow]No existe:[/yellow] {path}")
+        return
+
+    is_dir = data.get("is_dir", False)
+    kind = "Carpeta" if is_dir else "Archivo"
+    size = _format_size(data.get("size", 0))
+    ts = data.get("modified_ts")
+    modified = (
+        datetime.datetime.fromtimestamp(ts).strftime("%d/%m/%Y %H:%M:%S")
+        if ts else "—"
+    )
+
+    table = Table(title=f"Información de {kind}")
+    table.add_column("Campo", style="bold")
+    table.add_column("Valor")
+    table.add_row("Ruta", path)
+    table.add_row("Tipo", kind)
+    if not is_dir:
+        table.add_row("Tamaño", size)
+    table.add_row("Modificado", modified)
+    console.print(table)
+
 def _render_list_directory(data: dict) -> None:
     directories = data.get("directories", [])
     files = data.get("files", [])
 
-    console.print("\n[bold]Tu escritorio tiene:[/bold]\n")
+    folder = Path(data.get("path", "")).name or data.get("path", "directorio")
+    console.print(f"\n[bold]{folder} contiene:[/bold]\n")
 
     if directories:
         table_dirs = Table(title=f"Carpetas ({len(directories)})")
@@ -124,6 +168,83 @@ def _render_list_directory(data: dict) -> None:
 
         console.print(table_files)
         
+def _render_search(data) -> None:
+    """Renderiza resultados de búsqueda de archivos."""
+    if not data:
+        console.print("\n[yellow]No se encontraron archivos.[/yellow]")
+        return
+    table = Table(title=f"Archivos encontrados ({len(data)})")
+    table.add_column("Nombre")
+    table.add_column("Ruta", style="dim")
+    for p in data:
+        path_obj = Path(p)
+        table.add_row(path_obj.name, str(path_obj))
+    console.print(table)
+
+def _render_tree_directory(data: dict) -> None:
+    """Renderiza árbol de directorios con Rich Tree."""
+    from rich.tree import Tree
+
+    def _build_tree(node: dict, tree) -> None:
+        for child in node.get("children") or []:
+            if child.get("children") is None:
+                size = _format_size(child.get("size", 0))
+                tree.add(f"[dim]{child['name']}[/dim] [italic dim]{size}[/italic dim]")
+            else:
+                branch = tree.add(f"[bold blue]{child['name']}[/bold blue]")
+                _build_tree(child, branch)
+
+    root_tree = Tree(f"[bold]{data['name']}[/bold]")
+    _build_tree(data, root_tree)
+    console.print(root_tree)
+
+def _render_read_file(data: str, step) -> None:
+    """Renderiza el contenido de un archivo leído."""
+    console.print(Panel(data, title="[bold]Contenido del archivo[/bold]", expand=False))
+
+def _render_list_processes(data: list) -> None:
+    """Renderiza lista de procesos en ejecución."""
+    table = Table(title=f"Procesos en ejecución ({len(data)})")
+    table.add_column("PID", style="dim", justify="right", width=7)
+    table.add_column("Nombre")
+
+    # Ordenar por nombre, mostrar todos
+    for proc in sorted(data, key=lambda p: (p.get("name") or "").lower()):
+        table.add_row(str(proc.get("pid", "")), proc.get("name") or "—")
+
+    console.print(table)
+
+
+def _render_get_system_info(data: dict) -> None:
+    """Renderiza información del sistema."""
+    import datetime
+    table = Table(title="Información del sistema")
+    table.add_column("Campo", style="bold")
+    table.add_column("Valor")
+
+    cpu_bar = "█" * int(data.get("cpu_percent", 0) / 5) + "░" * (20 - int(data.get("cpu_percent", 0) / 5))
+    mem_bar = "█" * int(data.get("memory_percent", 0) / 5) + "░" * (20 - int(data.get("memory_percent", 0) / 5))
+
+    boot_ts = data.get("boot_time")
+    boot_str = datetime.datetime.fromtimestamp(boot_ts).strftime("%d/%m/%Y %H:%M") if boot_ts else "—"
+
+    table.add_row("Sistema", f"{data.get('platform', '—')} {data.get('platform_release', '')}")
+    table.add_row("Arquitectura", data.get("architecture", "—"))
+    table.add_row("CPUs", str(data.get("cpu_count", "—")))
+    table.add_row("CPU uso", f"{data.get('cpu_percent', 0):.1f}%  {cpu_bar}")
+    table.add_row(
+        "RAM",
+        f"{data.get('memory_used_gb', 0):.1f} / {data.get('memory_total_gb', 0):.1f} GB  "
+        f"({data.get('memory_percent', 0):.0f}%)  {mem_bar}",
+    )
+    table.add_row(
+        "Disco",
+        f"{data.get('disk_used_gb', 0):.1f} / {data.get('disk_total_gb', 0):.1f} GB",
+    )
+    table.add_row("Encendido desde", boot_str)
+    console.print(table)
+
+
 def _format_size(size: int) -> str:
     if size < 1024:
         return f"{size} B"

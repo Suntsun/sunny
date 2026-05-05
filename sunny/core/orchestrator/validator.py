@@ -12,7 +12,7 @@ PLUGIN_CATALOG: Dict[str, Set[str]] = {
     "files": {
         "read_file", "write_file", "list_directory", "move", "copy",
         "delete", "search", "get_info", "empty_recycle_bin",
-        "restore_from_recycle_bin", "create_directory",
+        "restore_from_recycle_bin", "create_directory", "tree_directory", "delete_matching",
     },
     "os_control": {
         "open_app", "close_app", "list_processes", "kill_process",
@@ -32,7 +32,7 @@ PLUGIN_CATALOG: Dict[str, Set[str]] = {
 }
 
 CONFIRM_REQUIRED_ACTIONS: Dict[str, Set[str]] = {
-    "files": {"write_file", "move", "copy", "delete", "empty_recycle_bin"},
+    "files": {"write_file", "move", "copy", "delete", "empty_recycle_bin", "delete_matching"},
     "os_control": {"kill_process", "shutdown", "restart"},
 }
 
@@ -49,6 +49,8 @@ ACTION_SIGNATURES: Dict[str, Dict[str, List[str]]] = {
         "empty_recycle_bin": [],
         "restore_from_recycle_bin": ["filename"],
         "create_directory": ["path"],
+        "tree_directory": ["path"],
+        "delete_matching": ["directory", "pattern"],
     },
     "os_control": {
         "open_app": ["app"],

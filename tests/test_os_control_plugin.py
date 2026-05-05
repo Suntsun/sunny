@@ -16,14 +16,27 @@ def test_plugin_name(plugin):
     assert plugin.name == "os_control"
 
 
-def test_open_app_calls_subprocess(monkeypatch, plugin):
+def test_open_app_found_via_which(monkeypatch, plugin):
+    """open_app tiene éxito si el ejecutable está en PATH."""
     called = {}
-    def fake_popen(args, shell):
-        called["args"] = args
-        called["shell"] = shell
-    monkeypatch.setattr("sunny.modules.os_control.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("sunny.modules.os_control.os.path.isfile", lambda p: False)
+    monkeypatch.setattr("sunny.modules.os_control.shutil.which", lambda name: "/usr/bin/chrome" if "chrome" in name else None)
+    monkeypatch.setattr("sunny.modules.os_control.subprocess.Popen", lambda args, **kw: called.update({"args": args}))
+    monkeypatch.setattr(OSControlPlugin, "_find_in_registry", staticmethod(lambda app: None))
+    monkeypatch.setattr(OSControlPlugin, "_find_in_common_dirs", staticmethod(lambda app: None))
     r = plugin.execute("open_app", {"app": "chrome"}, {})
-    assert r.success and called["args"] == ["chrome"] and called["shell"]
+    assert r.success
+    assert called["args"] == ["/usr/bin/chrome"]
+
+
+def test_open_app_not_found_returns_error(monkeypatch, plugin):
+    """open_app devuelve error si la app no existe en ningún lugar."""
+    monkeypatch.setattr("sunny.modules.os_control.os.path.isfile", lambda p: False)
+    monkeypatch.setattr("sunny.modules.os_control.shutil.which", lambda name: None)
+    monkeypatch.setattr("sunny.modules.os_control.os.startfile", lambda name: (_ for _ in ()).throw(OSError()))
+    r = plugin.execute("open_app", {"app": "appquenoeexiste"}, {})
+    assert not r.success
+    assert r.error_type == "FileNotFoundError"
 
 
 def test_close_app_terminates_matching(monkeypatch, plugin):

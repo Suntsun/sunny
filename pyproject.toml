@@ -20,6 +20,7 @@ dependencies = [
     "mss",
     "playwright",
     "python-dotenv",
+    "send2trash",
 ]
 
 [project.scripts]

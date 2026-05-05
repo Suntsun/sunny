@@ -18,6 +18,8 @@ DEFAULT_MODEL: str = "llama3.1:8b-instruct-q5_K_M"
 DEFAULT_TEMPERATURE: float = 0.2
 DEFAULT_TIMEOUT_SEC: int = 120
 MAX_RETRIES: int = 3
+DEFAULT_NUM_CTX: int = 16384
+CONTEXT_WARN_RATIO: float = 0.80
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -71,7 +73,7 @@ def call_llm(
     kwargs = {
         "model": model,
         "messages": messages,
-        "options": {"temperature": temperature, "num_predict": 2048},
+        "options": {"temperature": temperature, "num_predict": 2048, "num_ctx": DEFAULT_NUM_CTX},
     }
     if json_mode:
         kwargs["format"] = "json"
@@ -107,6 +109,14 @@ def call_llm(
         latency_ms=stats.latency_ms,
         json_mode=json_mode,
     )
+
+    if stats.tokens_in >= int(DEFAULT_NUM_CTX * CONTEXT_WARN_RATIO):
+        log.warning(
+            "context_limit_approaching",
+            tokens_in=stats.tokens_in,
+            num_ctx=DEFAULT_NUM_CTX,
+            usage_pct=round(stats.tokens_in / DEFAULT_NUM_CTX * 100, 1),
+        )
 
     return content, stats
 

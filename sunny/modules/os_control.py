@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import platform
+import shutil
 import subprocess
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import psutil
 
@@ -53,9 +55,138 @@ class OSControlPlugin(PluginBase):
         log.info("os_control_action_done", action=action, success=res.success)
         return res
 
+    @staticmethod
+    def _find_in_registry(app: str) -> Optional[str]:
+        """Busca el ejecutable en el registro de Windows (App Paths)."""
+        try:
+            import winreg
+            exe = app if app.lower().endswith(".exe") else app + ".exe"
+            for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                try:
+                    key_path = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}"
+                    with winreg.OpenKey(hive, key_path) as key:
+                        value, _ = winreg.QueryValueEx(key, "")
+                        if value and os.path.isfile(value):
+                            return value
+                except (FileNotFoundError, OSError):
+                    continue
+        except ImportError:
+            pass
+        return None
+
+    @staticmethod
+    def _find_in_common_dirs(app: str) -> Optional[str]:
+        """Busca el ejecutable en directorios comunes de instalación de Windows.
+
+        Estrategia en dos pasadas:
+        1. Carpetas cuyo nombre contiene el app name (rápido, mayoría de casos).
+        2. Búsqueda exhaustiva del .exe en hasta 3 niveles de profundidad (Chrome, etc.).
+        """
+        name = app.lower()
+        exe = name if name.endswith(".exe") else name + ".exe"
+
+        roots = [
+            os.path.expandvars(r"%LOCALAPPDATA%"),
+            os.path.expandvars(r"%APPDATA%"),
+            os.path.expandvars(r"%PROGRAMFILES%"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%"),
+        ]
+
+        def _search_dir(directory: str, depth: int) -> Optional[str]:
+            """Busca exe recursivamente hasta depth niveles."""
+            if depth < 0:
+                return None
+            try:
+                entries = sorted(os.listdir(directory), reverse=True)
+            except PermissionError:
+                return None
+            # Primero buscar el exe directamente en este nivel
+            candidate = os.path.join(directory, exe)
+            if os.path.isfile(candidate):
+                return candidate
+            # Luego bajar a subdirectorios
+            for entry in entries:
+                entry_path = os.path.join(directory, entry)
+                if os.path.isdir(entry_path):
+                    found = _search_dir(entry_path, depth - 1)
+                    if found:
+                        return found
+            return None
+
+        # Pasada 1: solo carpetas cuyo nombre contiene el app name
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            try:
+                entries = os.listdir(root)
+            except PermissionError:
+                continue
+            for entry in entries:
+                if name not in entry.lower():
+                    continue
+                entry_path = os.path.join(root, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                found = _search_dir(entry_path, depth=2)
+                if found:
+                    return found
+
+        # Pasada 2: búsqueda exhaustiva hasta 3 niveles (captura Chrome, etc.)
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            found = _search_dir(root, depth=3)
+            if found:
+                return found
+
+        return None
+
     def _open_app(self, app: str) -> Dict[str, Any]:
-        subprocess.Popen([app], shell=True)
-        return {"app": app, "launched": True}
+        """Abre una aplicación por nombre, ejecutable en PATH, registro, dirs comunes o URI."""
+        # DETACHED_PROCESS desvincula el hijo de la consola de sunny
+        # evitando que apps Electron (Discord, Chrome…) escriban ruido al terminal
+        popen_kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+        try:
+            popen_kwargs["creationflags"] = subprocess.DETACHED_PROCESS
+        except AttributeError:
+            pass  # No-Windows: ignorar
+
+        # 1. Ruta completa existente
+        if os.path.isfile(app):
+            subprocess.Popen([app], **popen_kwargs)
+            return {"app": app, "launched": True}
+
+        # 2. Ejecutable en PATH (con o sin .exe)
+        found = shutil.which(app) or shutil.which(app + ".exe")
+        if found:
+            subprocess.Popen([found], **popen_kwargs)
+            return {"app": found, "launched": True}
+
+        # 3. Registro de Windows (App Paths) — apps que se auto-registran
+        reg_path = self._find_in_registry(app)
+        if reg_path:
+            subprocess.Popen([reg_path], **popen_kwargs)
+            return {"app": reg_path, "launched": True}
+
+        # 4. Directorios comunes de instalación (Discord, Spotify, Steam games…)
+        common_path = self._find_in_common_dirs(app)
+        if common_path:
+            subprocess.Popen([common_path], **popen_kwargs)
+            return {"app": common_path, "launched": True}
+
+        # 5. os.startfile — URIs (steam://), UWP, asociaciones de Windows
+        try:
+            os.startfile(app)
+            return {"app": app, "launched": True}
+        except OSError:
+            raise FileNotFoundError(
+                f"No se encontró la aplicación '{app}'. "
+                "Usa el nombre del ejecutable (ej. 'notepad'), la ruta completa, o una URI de Windows (ej. 'steam://rungameid/427520')."
+            )
 
     def _close_app(self, app: str) -> Dict[str, Any]:
         count = 0

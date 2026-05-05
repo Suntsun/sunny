@@ -168,6 +168,49 @@ def _execute_step(
         )
 
     pr: PluginResult = holder["result"]
+
+    # Conflicto de destino en move/copy: PluginBase captura la excepción antes que nosotros
+    if (
+        not pr.success
+        and pr.error_type == "FileExistsError"
+        and step.plugin == "files"
+        and step.action in ("move", "copy")
+    ):
+        from sunny.core.orchestrator.confirmation import ask_conflict_resolution
+        from sunny.modules.files import FilesPlugin
+        dst = pr.error  # el error es el path del destino
+        resolution = ask_conflict_resolution(dst)
+        if resolution == "cancel":
+            return StepExecutionResult(
+                step_id=step.step_id,
+                plugin=step.plugin,
+                action=step.action,
+                success=False,
+                error="operación cancelada por el usuario",
+                error_type="UserCancelled",
+                latency_ms=elapsed_ms,
+            )
+        new_params = dict(step.params)
+        if resolution == "overwrite":
+            new_params["overwrite"] = True
+        elif resolution == "rename":
+            from pathlib import Path
+            fp = FilesPlugin()
+            new_dst = fp._find_free_name(Path(dst))
+            new_params["dst"] = str(new_dst)
+        pr2 = plugin.execute(step.action, new_params, context, step.timeout_sec)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        return StepExecutionResult(
+            step_id=step.step_id,
+            plugin=step.plugin,
+            action=step.action,
+            success=pr2.success,
+            data=pr2.data,
+            error=pr2.error,
+            error_type=pr2.error_type,
+            latency_ms=elapsed_ms,
+        )
+
     return StepExecutionResult(
         step_id=step.step_id,
         plugin=step.plugin,
