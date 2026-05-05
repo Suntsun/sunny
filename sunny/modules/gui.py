@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Optional
 
 import pyautogui
+import pyperclip
 
 from sunny.core.logging.logger import get_logger
 from sunny.core.plugins.base import PluginBase, PluginResult
@@ -62,7 +63,11 @@ class GuiPlugin(PluginBase):
         return {"text": text, "clicked_at": center}
 
     def _type_text(self, text: str) -> Dict[str, Any]:
-        pyautogui.write(text, interval=0.02)
+        if any(ord(c) > 127 for c in text):
+            pyperclip.copy(text)
+            pyautogui.hotkey("ctrl", "v")
+        else:
+            pyautogui.write(text, interval=0.02)
         return {"text": text, "length": len(text)}
 
     def _press_key(self, key: str) -> Dict[str, Any]:

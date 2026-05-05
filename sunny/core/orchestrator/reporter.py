@@ -107,6 +107,12 @@ def _render_semantic_output(result: ExecutionResult) -> None:
             _render_tree_directory(data)
         elif plugin == "files" and action == "get_info":
             _render_get_info(data)
+        elif plugin == "files" and action == "write_file":
+            _render_write_file(data)
+        elif plugin == "files" and action == "create_directory":
+            _render_create_directory(data)
+        elif plugin == "files" and action == "delete_matching":
+            _render_delete_matching(data)
         elif plugin == "os_control" and action == "get_system_info":
             _render_get_system_info(data)
         elif plugin == "os_control" and action == "list_processes":
@@ -245,6 +251,38 @@ def _render_get_system_info(data: dict) -> None:
     console.print(table)
 
 
+def _render_write_file(data: dict) -> None:
+    path = data.get("path", "")
+    size = _format_size(data.get("bytes_written", 0))
+    console.print(f"\n[green]Archivo guardado:[/green] {path} ({size})")
+
+
+def _render_create_directory(data: dict) -> None:
+    path = data.get("created", "")
+    console.print(f"\n[green]Carpeta creada:[/green] {path}")
+
+
+def _render_delete_matching(data: dict) -> None:
+    deleted = data.get("deleted", [])
+    errors = data.get("errors", [])
+    count = data.get("count", len(deleted))
+
+    if count == 0:
+        console.print("\n[yellow]No se encontraron archivos que coincidieran con el patrón.[/yellow]")
+        return
+
+    table = Table(title=f"[green]Eliminados ({count})[/green]")
+    table.add_column("Ruta")
+    for p in deleted:
+        table.add_row(p)
+    console.print(table)
+
+    if errors:
+        console.print(f"[red]{len(errors)} error(es) al eliminar:[/red]")
+        for err in errors:
+            console.print(f"  [dim]{err['path']}[/dim]: {err['error']}")
+
+
 def _format_size(size: int) -> str:
     if size < 1024:
         return f"{size} B"
@@ -254,4 +292,3 @@ def _format_size(size: int) -> str:
         return f"{size / (1024**2):.1f} MB"
     else:
         return f"{size / (1024**3):.1f} GB"
-        

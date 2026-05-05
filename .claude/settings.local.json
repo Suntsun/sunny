@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -q --tb=short)",
+      "Bash(.venv/Scripts/python.exe *)",
+      "Bash(python -m pytest tests/ -x --tb=short -q)",
+      "Bash(python3 -m pytest tests/ -x --tb=short -q)",
+      "Bash(python3 -m ensurepip --upgrade)",
+      "Bash(python3 -m pip install pytest pydantic rich typer ollama structlog sqlite-utils)",
+      "Bash(apt list *)",
+      "Bash(dpkg -l)",
+      "Bash(sudo apt-get install -y python3-pip python3-venv)",
+      "Bash(curl -sS https://bootstrap.pypa.io/get-pip.py)",
+      "Bash(python3)",
+      "Bash(python3 -m venv /tmp/sunny_venv)",
+      "Bash(/tmp/sunny_venv/bin/pip install *)",
+      "Read(//mnt/c/Windows/**)",
+      "Read(//mnt/c/Users/**)",
+      "Bash($PYTHON_WIN *)",
+      "Bash(/mnt/c/Proyectos/sunny/.venv/Scripts/python.exe --version)",
+      "Bash(/mnt/c/Proyectos/sunny/.venv/Scripts/python.exe -m pytest --version)"
+    ]
+  }
+}

@@ -11,6 +11,12 @@ from sunny.core.logging.logger import get_logger
 
 log = get_logger("sunny.core.memory.sqlite")
 
+sqlite3.register_adapter(datetime, lambda val: val.isoformat())
+sqlite3.register_converter(
+    "TIMESTAMP",
+    lambda val: datetime.fromisoformat(val.decode()),
+)
+
 _DB_CONN: Optional[sqlite3.Connection] = None
 _DB_PATH: Optional[Path] = None
 _WRITE_LOCK = threading.Lock()

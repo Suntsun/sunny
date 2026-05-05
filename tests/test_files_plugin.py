@@ -206,3 +206,39 @@ def test_create_directory_expands_env_vars(monkeypatch, tmp_path, plugin):
     r = plugin.execute("create_directory", {"path": "%MYSUNNYDIR%"}, {})
     assert r.success
     assert (tmp_path / "envdir").exists()
+
+
+# --- smoke: casos límite del checklist ---
+
+def test_move_nonexistent_source_returns_error(tmp_path, plugin):
+    """Mover un archivo que no existe devuelve error en lugar de lanzar excepción."""
+    r = plugin.execute("move", {"src": str(tmp_path / "noexiste.txt"), "dst": str(tmp_path / "dst.txt")}, {})
+    assert not r.success
+
+
+def test_write_file_with_special_chars_in_name(tmp_path, plugin):
+    """Crear un archivo con caracteres especiales en el nombre funciona correctamente."""
+    p = tmp_path / "nota€ñ.txt"
+    r = plugin.execute("write_file", {"path": str(p), "content": "contenido con €uro y ñ"}, {})
+    assert r.success
+    assert p.exists()
+    assert p.read_text(encoding="utf-8") == "contenido con €uro y ñ"
+
+
+def test_read_file_with_special_chars_in_name(tmp_path, plugin):
+    """Leer un archivo con caracteres especiales en el nombre devuelve el contenido correcto."""
+    p = tmp_path / "café_résumé.txt"
+    p.write_text("texto con acentos: á é í ó ú", encoding="utf-8")
+    r = plugin.execute("read_file", {"path": str(p)}, {})
+    assert r.success
+    assert "á" in r.data
+
+
+def test_move_dest_conflict_returns_error(tmp_path, plugin):
+    """Mover a un destino que ya existe sin overwrite=True devuelve error."""
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("origen")
+    dst.write_text("destino ya existe")
+    r = plugin.execute("move", {"src": str(src), "dst": str(dst)}, {})
+    assert not r.success and r.error_type == "FileExistsError"

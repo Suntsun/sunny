@@ -309,3 +309,90 @@ def test_list_processes_skips_inaccessible(monkeypatch):
     result = plugin._list_processes()
     assert len(result) == 1
     assert result[0]["name"] == "good.exe"
+
+
+# --- smoke: ítems del checklist ---
+
+def test_open_default_browser_via_http_uri(monkeypatch):
+    """open_app con URI http:// usa os.startfile (navegador predeterminado)."""
+    plugin = OSControlPlugin()
+    started = {}
+
+    monkeypatch.setattr("sunny.modules.os_control.os.path.isfile", lambda p: False)
+    monkeypatch.setattr("sunny.modules.os_control.shutil.which", lambda name: None)
+    monkeypatch.setattr(OSControlPlugin, "_find_in_registry", staticmethod(lambda app: None))
+    monkeypatch.setattr(OSControlPlugin, "_find_in_common_dirs", staticmethod(lambda app: None))
+    monkeypatch.setattr("sunny.modules.os_control.os.startfile", lambda name: started.update({"name": name}))
+
+    result = plugin._open_app("http://")
+    assert result["launched"] is True
+    assert started["name"] == "http://"
+
+
+def test_close_notepad_terminates_matching(monkeypatch):
+    """close_app('notepad') termina procesos cuyo nombre contiene 'notepad'."""
+    plugin = OSControlPlugin()
+
+    class FakeProc:
+        def __init__(self, name):
+            self.info = {"pid": 1, "name": name}
+            self.terminated = False
+        def terminate(self):
+            self.terminated = True
+
+    procs = [FakeProc("notepad.exe"), FakeProc("chrome.exe")]
+    monkeypatch.setattr("sunny.modules.os_control.psutil.process_iter", lambda _: procs)
+
+    result = plugin._close_app("notepad")
+    assert result["closed"] == 1
+    assert procs[0].terminated is True
+    assert procs[1].terminated is False
+
+
+def test_get_system_info_has_cpu_and_memory_fields():
+    """get_system_info devuelve los campos de CPU y memoria necesarios."""
+    plugin = OSControlPlugin()
+    info = plugin._get_system_info()
+
+    assert "cpu_percent" in info
+    assert "memory_total_gb" in info
+    assert "memory_used_gb" in info
+    assert "memory_percent" in info
+    assert isinstance(info["cpu_percent"], float)
+    assert info["memory_total_gb"] > 0
+
+
+def test_list_processes_can_find_specific_process(monkeypatch):
+    """Dado que notepad.exe está en la lista, se puede detectar buscando por nombre."""
+    plugin = OSControlPlugin()
+
+    class FakeProc:
+        def __init__(self, pid, name):
+            self.info = {"pid": pid, "name": name}
+
+    monkeypatch.setattr(
+        "sunny.modules.os_control.psutil.process_iter",
+        lambda attrs: iter([FakeProc(42, "notepad.exe"), FakeProc(1, "explorer.exe")]),
+    )
+
+    procs = plugin._list_processes()
+    names = [p["name"] for p in procs]
+    assert "notepad.exe" in names
+
+
+def test_list_processes_not_running_if_absent(monkeypatch):
+    """Si chrome.exe no está en la lista, se puede determinar que no está abierto."""
+    plugin = OSControlPlugin()
+
+    class FakeProc:
+        def __init__(self, pid, name):
+            self.info = {"pid": pid, "name": name}
+
+    monkeypatch.setattr(
+        "sunny.modules.os_control.psutil.process_iter",
+        lambda attrs: iter([FakeProc(1, "explorer.exe"), FakeProc(2, "notepad.exe")]),
+    )
+
+    procs = plugin._list_processes()
+    names = [p["name"].lower() for p in procs]
+    assert not any("chrome" in n for n in names)

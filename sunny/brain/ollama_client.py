@@ -175,11 +175,13 @@ def call_llm_validated(
                 error_msg=str(e),
             )
 
+            required_fields = list(schema.model_fields.keys())
             user_prompt = (
                 f"{user_prompt}\n\n[ERROR PREVIO]\n"
                 f"La respuesta anterior falló validación: {str(e)}\n"
                 f"El raw fue: {raw[:500]}\n"
-                f"Reintenta produciendo JSON válido conforme al esquema."
+                f"Campos requeridos por el esquema: {required_fields}\n"
+                f"Reintenta produciendo JSON válido con exactamente esos campos."
             )
 
         attempt += 1
@@ -191,8 +193,13 @@ def health_check(model: str = DEFAULT_MODEL) -> bool:
     """Verifica si el modelo está disponible."""
     try:
         resp = ollama.list()
-        text = str(resp)
-        return model in text
+        models = getattr(resp, "models", None)
+        if models is not None:
+            return any(
+                getattr(m, "model", None) == model or model in str(getattr(m, "model", ""))
+                for m in models
+            )
+        return model in str(resp)
     except Exception as e:
         log.warning("health_check_failed", error_type=type(e).__name__, error_msg=str(e))
         return False

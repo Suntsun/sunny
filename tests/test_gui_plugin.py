@@ -116,3 +116,54 @@ def test_execute_logs_action(monkeypatch, plugin):
 
     plugin.execute("click", {"x": 1, "y": 1}, {})
     assert "gui_action_done" in calls
+
+
+# --- smoke: type_text con unicode (DEP-10 fix) ---
+
+def test_type_text_unicode_uses_clipboard_paste(monkeypatch, plugin):
+    """Caracteres no-ASCII (€, ñ) usan pyperclip+ctrl+v, no pyautogui.write."""
+    clipboard = {}
+    paste_calls = []
+    write_calls = []
+
+    monkeypatch.setattr("sunny.modules.gui.pyperclip.copy", lambda t: clipboard.update({"text": t}))
+    monkeypatch.setattr("sunny.modules.gui.pyautogui.hotkey", lambda *k: paste_calls.append(k))
+    monkeypatch.setattr("sunny.modules.gui.pyautogui.write", lambda t, interval=0.02: write_calls.append(t))
+
+    r = plugin.execute("type_text", {"text": "€ñe"}, {})
+
+    assert r.success
+    assert clipboard["text"] == "€ñe"
+    assert ("ctrl", "v") in paste_calls
+    assert write_calls == []
+
+
+def test_type_text_ascii_still_uses_write(monkeypatch, plugin):
+    """Texto ASCII sigue usando pyautogui.write (sin pasar por clipboard)."""
+    write_calls = []
+    copy_calls = []
+
+    monkeypatch.setattr("sunny.modules.gui.pyautogui.write", lambda t, interval=0.02: write_calls.append(t))
+    monkeypatch.setattr("sunny.modules.gui.pyperclip.copy", lambda t: copy_calls.append(t))
+
+    r = plugin.execute("type_text", {"text": "hola mundo"}, {})
+
+    assert r.success
+    assert write_calls == ["hola mundo"]
+    assert copy_calls == []
+
+
+def test_type_text_mixed_unicode_uses_clipboard(monkeypatch, plugin):
+    """Texto mixto (ASCII + unicode) va por clipboard si contiene algún char > 127."""
+    clipboard = {}
+    paste_calls = []
+
+    monkeypatch.setattr("sunny.modules.gui.pyperclip.copy", lambda t: clipboard.update({"text": t}))
+    monkeypatch.setattr("sunny.modules.gui.pyautogui.hotkey", lambda *k: paste_calls.append(k))
+    monkeypatch.setattr("sunny.modules.gui.pyautogui.write", lambda t, interval=0.02: None)
+
+    r = plugin.execute("type_text", {"text": "hola €"}, {})
+
+    assert r.success
+    assert clipboard["text"] == "hola €"
+    assert ("ctrl", "v") in paste_calls

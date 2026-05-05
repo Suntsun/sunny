@@ -2,7 +2,7 @@
 
 > Asistente de automatización de escritorio con IA para Windows 11 — 100% local, sin datos en la nube.
 
-![Tests](https://img.shields.io/badge/tests-365%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
+![Tests](https://img.shields.io/badge/tests-500%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
 
 ---
 
@@ -12,7 +12,7 @@ Sunny traduce órdenes en lenguaje natural a acciones concretas sobre el sistema
 
 El cerebro del sistema es un LLM que corre **completamente en local** mediante [Ollama](https://ollama.com/). Ningún dato abandona el equipo. El modelo por defecto es `llama3.1:8b-instruct-q5_K_M`, elegido por su equilibrio entre velocidad y calidad en la generación de JSON estructurado.
 
-El proyecto está en **alpha funcional**: el flujo completo opera sin errores, hay 365 tests passing y los 5 plugins principales están implementados y smoke-testeados. No es software de producción; es una herramienta personal en desarrollo activo.
+El proyecto está en **alpha funcional**: el flujo completo opera sin errores, hay 500 tests passing (incluyendo 106 smoke tests de pipeline) y los 5 plugins principales están implementados. No es software de producción; es una herramienta personal en desarrollo activo.
 
 ---
 
@@ -193,7 +193,7 @@ Orden del usuario
 
 Los paths aceptan variables de entorno Windows: `%USERPROFILE%`, `%TEMP%`, `%APPDATA%`, etc.
 La eliminación siempre va a la papelera de reciclaje (`send2trash`), nunca es permanente.
-Cada acción tiene su propio render en consola: tablas para listados, árbol Rich para `tree_directory`, panel para `read_file`, tabla de metadatos para `get_info`.
+Cada acción tiene su propio render en consola: tablas para listados, árbol Rich para `tree_directory`, panel para `read_file`, tabla de metadatos para `get_info`, confirmación con tamaño para `write_file`, tabla de eliminados para `delete_matching`.
 
 ### `os_control` — Control del sistema operativo
 
@@ -253,18 +253,23 @@ Cada acción tiene su propio render en consola: tablas para listados, árbol Ric
 ## Tests
 
 ```powershell
-pytest --tb=short -q      # 365 tests, ~16 s
+pytest --tb=short -q      # 500 tests, ~25 s
 ```
 
 ```
 tests/
-├── brain/           # Cliente Ollama (mocks)
-├── modules/         # Plugins: files, os_control, vision, gui, ai_bridge
-├── orchestrator/    # Validator, reporter, confirmation
-└── test_cli.py      # CLI end-to-end (mocks de brain y plugins)
-    test_memory.py   # Historial SQLite
-    test_session.py  # Gestión de sesiones
+├── modules/              # Plugins: files, os_control, vision, gui, ai_bridge
+├── test_comprehension.py # Fase de comprensión
+├── test_planner.py       # Fase de planificación
+├── test_validator.py     # Validación de planes
+├── test_engine.py        # Motor de ejecución
+├── test_memory.py        # Historial SQLite
+├── test_session.py       # Gestión de sesiones
+├── test_cli.py           # CLI end-to-end (mocks)
+└── test_smoke_100.py     # 106 smoke tests de pipeline completo
 ```
+
+Los smoke tests cubren los 10 componentes principales del pipeline (modelos, cliente LLM, comprensión, planificación, validador, engine, plugins, memoria) y validan el comportamiento end-to-end con mocks de Ollama.
 
 ---
 
@@ -274,7 +279,7 @@ Los DEPs resueltos se mantienen como referencia histórica.
 
 | ID | Descripción | Módulo | Prioridad | Estado |
 |---|---|---|---|---|
-| DEP-1 | Adapters explícitos `datetime↔TIMESTAMP` para silenciar warnings Python 3.12+ | Memory | Baja | Abierto |
+| DEP-1 | Adapters explícitos `datetime↔TIMESTAMP` para silenciar warnings Python 3.12+ | Memory | Baja | ✅ Resuelto |
 | DEP-2 | Log condicional en `end_session` cuando no hay sesión activa | SessionManager | Cosmético | Abierto |
 | DEP-3 | Bug structlog `cache_logger_on_first_use` en pytest | Logger | — | ✅ Resuelto |
 | DEP-4 | 2 tests `test_session_*_event_logged` fallaban por interacción structlog↔pytest | Tests | — | ✅ Resuelto |
@@ -283,8 +288,11 @@ Los DEPs resueltos se mantienen como referencia histórica.
 | DEP-7 | `restore_from_recycle_bin` requiere integración COM/pywin32 | Files plugin | Baja | Abierto |
 | DEP-8 | `set_volume` y `mute` requieren `pycaw` (no instalado por defecto) | OS Control | Media | Abierto |
 | DEP-9 | Política de retención de screenshots (actualmente sin límite) | Vision plugin | Baja | Abierto |
-| DEP-10 | `type_text` no soporta caracteres unicode (solo ASCII) | GUI plugin | Media | Abierto |
+| DEP-10 | `type_text` no soporta caracteres unicode (solo ASCII) | GUI plugin | Media | ✅ Resuelto |
 | DEP-11 | Backends reales para AI Bridge (ChatGPT, DeepSeek, Gemini vía Playwright) | AI Bridge | Alta | Abierto |
+| DEP-22 | Retry LLM incluye nombres de campos del schema para guiar la corrección | Brain | Baja | ✅ Resuelto |
+| DEP-23 | `health_check` usaba `str(resp)` frágil en vez de parsear `resp.models` | Brain | Baja | ✅ Resuelto |
+| DEP-24 | Reporter no renderizaba `write_file`, `create_directory` ni `delete_matching` | Reporter | Media | ✅ Resuelto |
 | DEP-17 | Variables entre steps — el LLM no puede referenciar resultados de pasos anteriores en tiempo de planificación | Planner / Engine | Alta *(futura)* | Abierto |
 | DEP-19 | `create_directory` recursivo genera N steps en lugar de 1 (falta few-shot) | Planner | Media | Abierto |
 | DEP-20 | Ambigüedad de path cuando el usuario no especifica la ubicación de una carpeta | Planner | Media | Abierto |
@@ -301,4 +309,4 @@ El proyecto sigue un modelo multi-IA:
 
 ---
 
-*Sunny v0.1.0 — mayo 2026*
+*Sunny v0.1.0 — mayo 2026 · 500 tests · 3 mejoras aplicadas tras análisis de smoke tests*
