@@ -117,6 +117,10 @@ def _render_semantic_output(result: ExecutionResult) -> None:
             _render_get_system_info(data)
         elif plugin == "os_control" and action == "list_processes":
             _render_list_processes(data)
+        elif plugin == "vision" and action == "describe_screen":
+            _render_describe_screen(data)
+        elif plugin == "vision" and action == "analyze_screen":
+            _render_analyze_screen(data)
 
 def _render_get_info(data: dict) -> None:
     """Renderiza información de un archivo o carpeta."""
@@ -281,6 +285,51 @@ def _render_delete_matching(data: dict) -> None:
         console.print(f"[red]{len(errors)} error(es) al eliminar:[/red]")
         for err in errors:
             console.print(f"  [dim]{err['path']}[/dim]: {err['error']}")
+
+
+def _render_describe_screen(data: dict) -> None:
+    """Renderiza la descripción visual de la pantalla generada por el LLM multimodal."""
+    description = data.get("description", "") or ""
+    screenshot_path = data.get("screenshot_path", "")
+    model_used = data.get("model_used", "llava")
+
+    body = description.strip() if description else "[dim]Sin descripción.[/dim]"
+
+    console.print(
+        Panel(
+            body,
+            title=f"[bold]Descripción de pantalla[/bold] [dim]({model_used})[/dim]",
+            expand=False,
+        )
+    )
+    if screenshot_path:
+        console.print(f"[dim]Captura: {screenshot_path}[/dim]")
+
+
+def _render_analyze_screen(data: dict) -> None:
+    """Renderiza pregunta y respuesta del análisis visual de la pantalla."""
+    question = data.get("question", "") or ""
+    answer = data.get("answer", "") or ""
+    screenshot_path = data.get("screenshot_path", "")
+    model_used = data.get("model_used", "llava")
+
+    body_parts = []
+    if question:
+        body_parts.append(f"[bold]Pregunta:[/bold] {question}")
+    body_parts.append("")
+    body_parts.append(
+        f"[bold]Respuesta:[/bold] {answer.strip() if answer else '[dim]Sin respuesta.[/dim]'}"
+    )
+
+    console.print(
+        Panel(
+            "\n".join(body_parts),
+            title=f"[bold]Análisis de pantalla[/bold] [dim]({model_used})[/dim]",
+            expand=False,
+        )
+    )
+    if screenshot_path:
+        console.print(f"[dim]Captura: {screenshot_path}[/dim]")
 
 
 def _format_size(size: int) -> str:

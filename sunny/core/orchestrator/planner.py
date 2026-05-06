@@ -54,7 +54,7 @@ def plan(
         log.info(event="planning_short_circuit", intent="conversation")
         return plan_obj, stats
 
-    system_prompt = load_system_prompt("v1")
+    system_prompt = load_system_prompt("v2")
     context = session.get_context()
     user_prompt = build_planning_user_prompt(user_input, comprehension, context)
 

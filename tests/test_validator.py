@@ -178,3 +178,67 @@ def test_validate_action_with_no_required_params():
     p = _plan(steps=[_step(plugin="os_control", action="list_processes", params={})])
     r = validate_plan(p)
     assert r.valid
+
+
+# ---------------------------------------------------------------------------
+# Tests para describe_screen y analyze_screen en el catálogo
+# ---------------------------------------------------------------------------
+
+
+def test_validate_describe_screen_no_required_params():
+    p = _plan(
+        intent="vision",
+        steps=[_step(plugin="vision", action="describe_screen", params={})],
+    )
+    r = validate_plan(p)
+    assert r.valid
+    assert not r.effective_requires_confirmation
+
+
+def test_validate_describe_screen_accepts_region_param():
+    p = _plan(
+        intent="vision",
+        steps=[_step(plugin="vision", action="describe_screen", params={"region": None})],
+    )
+    r = validate_plan(p)
+    assert r.valid
+
+
+def test_validate_analyze_screen_requires_question():
+    p = _plan(
+        intent="vision",
+        steps=[_step(plugin="vision", action="analyze_screen", params={})],
+    )
+    r = validate_plan(p)
+    assert not r.valid
+    assert any("question" in e for e in r.errors)
+
+
+def test_validate_analyze_screen_with_question_passes():
+    p = _plan(
+        intent="vision",
+        steps=[
+            _step(
+                plugin="vision",
+                action="analyze_screen",
+                params={"question": "¿qué ves?"},
+            )
+        ],
+    )
+    r = validate_plan(p)
+    assert r.valid
+
+
+def test_validate_analyze_screen_does_not_require_confirmation():
+    p = _plan(
+        intent="vision",
+        steps=[
+            _step(
+                plugin="vision",
+                action="analyze_screen",
+                params={"question": "¿qué ves?"},
+            )
+        ],
+    )
+    r = validate_plan(p)
+    assert not r.effective_requires_confirmation

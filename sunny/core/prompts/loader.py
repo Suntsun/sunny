@@ -5,8 +5,13 @@ _PROMPTS_DIR = Path(__file__).parent
 _CACHE: Dict[str, str] = {}
 
 
-def load_system_prompt(version: str = "v1") -> str:
-    """Carga el system prompt por versión con caché."""
+def load_system_prompt(version: str = "v2") -> str:
+    """Carga el system prompt por versión con caché.
+
+    La versión activa por defecto es "v2" (incluye describe_screen y
+    analyze_screen). "v1" sigue disponible para regresión y para usos
+    que no necesiten visión multimodal.
+    """
     if version in _CACHE:
         return _CACHE[version]
 

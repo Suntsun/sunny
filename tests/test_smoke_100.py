@@ -1126,14 +1126,13 @@ def test_health_check_uses_model_list(monkeypatch):
 
 # K-03: reporter renderiza delete_matching con recuento correcto
 def test_reporter_renders_delete_matching(monkeypatch):
+    import io
     import sunny.core.orchestrator.reporter as rep_mod
     from rich.console import Console
 
-    printed = []
-    fake_console = Console(file=__import__("io").StringIO())
-    original_print = fake_console.print
-    fake_console.print = lambda x, **k: printed.append(str(x))
-
+    sio = io.StringIO()
+    fake_console = Console(file=sio, highlight=False)
     monkeypatch.setattr(rep_mod, "console", fake_console)
     rep_mod._render_delete_matching({"deleted": ["/a/b.txt", "/a/c.txt"], "errors": [], "count": 2})
-    assert any("2" in p for p in printed)
+    output = sio.getvalue()
+    assert "2" in output

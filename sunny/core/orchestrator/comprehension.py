@@ -35,7 +35,7 @@ def build_comprehension_user_prompt(
 
 def comprehend(user_input: str) -> Tuple[ComprehensionResult, LLMCallStats]:
     """Ejecuta la fase de comprensión end-to-end."""
-    system_prompt = load_system_prompt("v1")
+    system_prompt = load_system_prompt("v2")
     context = session.get_context()
 
     user_prompt = build_comprehension_user_prompt(user_input, context)

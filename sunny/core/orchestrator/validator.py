@@ -21,6 +21,7 @@ PLUGIN_CATALOG: Dict[str, Set[str]] = {
     },
     "vision": {
         "screenshot", "read_screen_text", "find_on_screen",
+        "describe_screen", "analyze_screen",
     },
     "gui": {
         "click", "click_on_text", "type_text", "press_key",
@@ -69,6 +70,8 @@ ACTION_SIGNATURES: Dict[str, Dict[str, List[str]]] = {
         "screenshot": [],
         "read_screen_text": [],
         "find_on_screen": ["target"],
+        "describe_screen": [],
+        "analyze_screen": ["question"],
     },
     "gui": {
         "click": ["x", "y"],

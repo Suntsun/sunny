@@ -131,6 +131,107 @@ def test_v1_few_shot_jsons_parse_to_pydantic():
         assert ok, f"JSON inválido en few-shot: {j}"
 
 
+# ---------------------------------------------------------------------------
+# Tests para system_v2 (visión multimodal)
+# ---------------------------------------------------------------------------
+
+
+def test_load_system_prompt_v2_loads():
+    c = loader.load_system_prompt("v2")
+    assert isinstance(c, str)
+    assert len(c) > 200
+
+
+def test_load_system_prompt_v2_contains_describe_screen():
+    c = loader.load_system_prompt("v2")
+    assert "describe_screen" in c
+
+
+def test_load_system_prompt_v2_contains_analyze_screen():
+    c = loader.load_system_prompt("v2")
+    assert "analyze_screen" in c
+
+
+def test_load_system_prompt_v2_keeps_v1_actions():
+    c = loader.load_system_prompt("v2")
+    for a in [
+        "read_file", "write_file", "delete", "open_app",
+        "screenshot", "click", "type_text", "ask_external",
+    ]:
+        assert a in c
+
+
+def test_default_version_is_v2():
+    """El default de load_system_prompt debe ser v2 tras la fase de visión."""
+    default_content = loader.load_system_prompt()
+    v2_content = loader.load_system_prompt("v2")
+    assert default_content == v2_content
+
+
+def test_system_v1_unchanged():
+    """v1 debe seguir cargando exactamente igual; describe_screen/analyze_screen NO aparecen en v1."""
+    c1 = loader.load_system_prompt("v1")
+    assert "describe_screen" not in c1
+    assert "analyze_screen" not in c1
+    # Sigue conteniendo las secciones obligatorias originales
+    assert "# ROL Y MISIÓN" in c1
+    assert "FASE COMPRENSIÓN" in c1
+    assert "FASE PLANIFICACIÓN" in c1
+
+
+def test_v2_few_shot_describe_screen_example():
+    c = loader.load_system_prompt("v2")
+    assert "# EJEMPLOS FEW-SHOT" in c
+    few_shot = c.split("# EJEMPLOS FEW-SHOT", 1)[1]
+    # Debe haber al menos un ejemplo con describe_screen y otro con analyze_screen
+    assert '"action":"describe_screen"' in few_shot
+    assert '"action":"analyze_screen"' in few_shot
+
+
+def test_v2_few_shot_jsons_parse_to_pydantic():
+    c = loader.load_system_prompt("v2")
+    assert "# EJEMPLOS FEW-SHOT" in c
+    few_shot = c.split("# EJEMPLOS FEW-SHOT", 1)[1]
+
+    json_lines = re.findall(r'^\{".*\}$', few_shot, re.MULTILINE)
+    assert len(json_lines) >= 18, (
+        f"Esperaba >= 18 JSONs en v2 (v1 tenía 16; v2 añade 2 ejemplos x 2 fases), "
+        f"encontrados {len(json_lines)}"
+    )
+
+    for j in json_lines:
+        ok = False
+        try:
+            ComprehensionResult.model_validate_json(j)
+            ok = True
+        except Exception:
+            try:
+                PlanV2.model_validate_json(j)
+                ok = True
+            except Exception:
+                pass
+        assert ok, f"JSON inválido en few-shot v2: {j}"
+
+
+def test_v2_intent_consistency_in_examples():
+    c = loader.load_system_prompt("v2")
+    assert "# EJEMPLOS FEW-SHOT" in c
+    few_shot = c.split("# EJEMPLOS FEW-SHOT", 1)[1]
+
+    blocks = few_shot.split("---")
+    pairs = 0
+    for b in blocks:
+        json_lines = re.findall(r'^\{".*\}$', b, re.MULTILINE)
+        if len(json_lines) >= 2:
+            cr = ComprehensionResult.model_validate_json(json_lines[0])
+            pl = PlanV2.model_validate_json(json_lines[1])
+            assert cr.intent == pl.intent, (
+                f"intent inconsistente en v2: comprensión={cr.intent}, plan={pl.intent}"
+            )
+            pairs += 1
+    assert pairs >= 9, f"Esperaba >= 9 pares en v2, encontrados {pairs}"
+
+
 def test_v1_intent_consistency_in_examples():
     """
     Para cada bloque de few-shot, el intent de Comprensión debe coincidir

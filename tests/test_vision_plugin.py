@@ -193,3 +193,163 @@ def test_execute_logs_action(monkeypatch, plugin, tmp_path):
 
     plugin.execute("screenshot", {"region": None}, {})
     assert "vision_action_done" in calls
+
+
+# ---------------------------------------------------------------------------
+# Tests para describe_screen y analyze_screen (visión multimodal)
+# ---------------------------------------------------------------------------
+
+
+class _FakeStats:
+    def __init__(self, tokens_out=42, latency_ms=123):
+        self.tokens_in = 10
+        self.tokens_out = tokens_out
+        self.latency_ms = latency_ms
+        self.retries_used = 0
+
+
+def _patch_screenshot(monkeypatch, tmp_path):
+    """Stub _screenshot para evitar mss real."""
+    import sunny.modules.vision as v
+
+    monkeypatch.setattr(v, "SCREENSHOTS_DIR", tmp_path)
+    ctx, _ = _fake_mss()
+    monkeypatch.setattr(v.mss, "mss", lambda: ctx)
+    img = MagicMock()
+    img.width, img.height = 1920, 1080
+    monkeypatch.setattr(v.Image, "frombytes", lambda *a, **k: img)
+
+
+def _fake_ocr_data():
+    """OCR data simulado con palabras en 3 zonas."""
+    return {
+        "text": ["File", "Edit", "View", "", "Discord", "", "General", "", "Escribe", "aquí"],
+        "conf": ["90", "90", "90", "-1", "85", "-1", "88", "-1", "80", "80"],
+        "top":  [10,    10,    10,    0,   350,   0,    600,   0,    900,   900],
+        "left": [10,    60,    110,   0,   100,   0,    100,   0,    100,   200],
+        "width":[40,    40,    40,    0,   80,    0,    70,    0,    60,    40],
+        "height":[20,   20,    20,    0,   20,    0,    20,    0,    20,    20],
+    }
+
+
+def _patch_screenshot_with_ocr(monkeypatch, tmp_path):
+    """Stub _screenshot + Image.open + pytesseract para evitar hardware real."""
+    import sunny.modules.vision as v
+
+    monkeypatch.setattr(v, "SCREENSHOTS_DIR", tmp_path)
+    ctx, _ = _fake_mss()
+    monkeypatch.setattr(v.mss, "mss", lambda: ctx)
+    img = MagicMock()
+    img.width, img.height = 1920, 1080
+    monkeypatch.setattr(v.Image, "frombytes", lambda *a, **k: img)
+    monkeypatch.setattr(v.Image, "open", lambda path: img)
+    monkeypatch.setattr(v.pytesseract, "image_to_data", lambda im, lang, output_type: _fake_ocr_data())
+
+
+def test_describe_screen_calls_ocr_and_llm(monkeypatch, tmp_path, plugin):
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+    captured = {}
+
+    def fake_call(user_prompt, system_prompt, json_mode):
+        captured["user_prompt"] = user_prompt
+        return ("Hay una ventana de Discord abierta con un canal General.", _FakeStats())
+
+    monkeypatch.setattr("sunny.brain.ollama_client.call_llm", fake_call)
+
+    r = plugin.execute("describe_screen", {"region": None}, {})
+    assert r.success
+    assert "ocr" in captured["user_prompt"].lower() or "screen" in captured["user_prompt"].lower()
+
+
+def test_describe_screen_returns_description_and_path(monkeypatch, tmp_path, plugin):
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(
+        "sunny.brain.ollama_client.call_llm",
+        lambda *a, **kw: ("Hay un editor de texto abierto", _FakeStats()),
+    )
+
+    r = plugin.execute("describe_screen", {"region": None}, {})
+    assert r.success
+    assert r.data["description"] == "Hay un editor de texto abierto"
+    assert "screenshot_path" in r.data
+    assert r.data["screenshot_path"].endswith(".png")
+    assert "ocr" in r.data["model_used"].lower()
+
+
+def test_describe_screen_plugin_result_success(monkeypatch, tmp_path, plugin):
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "sunny.brain.ollama_client.call_llm",
+        lambda *a, **kw: ("ok", _FakeStats()),
+    )
+    r = plugin.execute("describe_screen", {}, {})
+    assert r.success and r.error is None
+
+
+def test_describe_screen_propagates_llm_error(monkeypatch, tmp_path, plugin):
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+    from sunny.brain.ollama_client import LLMError
+
+    def boom(**kw):
+        raise LLMError("llm no disponible")
+
+    monkeypatch.setattr("sunny.brain.ollama_client.call_llm", boom)
+
+    r = plugin.execute("describe_screen", {}, {})
+    assert not r.success
+    assert "llm" in r.error.lower()
+
+
+def test_analyze_screen_sends_question_to_llm(monkeypatch, tmp_path, plugin):
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+    captured = {}
+
+    def fake_call(**kw):
+        captured["user_prompt"] = kw.get("user_prompt", "")
+        return ("Sí, hay tres botones", _FakeStats())
+
+    monkeypatch.setattr("sunny.brain.ollama_client.call_llm", fake_call)
+
+    r = plugin.execute(
+        "analyze_screen",
+        {"question": "¿Cuántos botones hay?", "region": None},
+        {},
+    )
+    assert r.success
+    assert "¿Cuántos botones hay?" in captured["user_prompt"]
+
+
+def test_analyze_screen_returns_answer_and_question(monkeypatch, tmp_path, plugin):
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(
+        "sunny.brain.ollama_client.call_llm",
+        lambda *a, **kw: ("Tres botones grandes", _FakeStats()),
+    )
+
+    r = plugin.execute(
+        "analyze_screen", {"question": "¿Cuántos botones hay?"}, {}
+    )
+    assert r.success
+    assert r.data["answer"] == "Tres botones grandes"
+    assert r.data["question"] == "¿Cuántos botones hay?"
+    assert "ocr" in r.data["model_used"].lower()
+    assert r.data["screenshot_path"].endswith(".png")
+
+
+def test_analyze_screen_missing_question_raises(monkeypatch, tmp_path, plugin):
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "sunny.brain.ollama_client.call_llm",
+        lambda *a, **kw: ("no debería llegar", _FakeStats()),
+    )
+
+    r = plugin.execute("analyze_screen", {"question": ""}, {})
+    assert not r.success
+    assert r.error_type == "ValueError"
+
+
+def test_describe_and_analyze_registered_in_actions(plugin):
+    assert "describe_screen" in plugin._actions
+    assert "analyze_screen" in plugin._actions

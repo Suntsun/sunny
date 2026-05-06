@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -15,8 +16,10 @@ log = get_logger("sunny.brain.ollama_client")
 
 # Constantes (exportables)
 DEFAULT_MODEL: str = "llama3.1:8b-instruct-q5_K_M"
+DEFAULT_VISION_MODEL: str = "llava"
 DEFAULT_TEMPERATURE: float = 0.2
 DEFAULT_TIMEOUT_SEC: int = 120
+DEFAULT_VISION_TIMEOUT_SEC: int = 60
 MAX_RETRIES: int = 3
 DEFAULT_NUM_CTX: int = 16384
 CONTEXT_WARN_RATIO: float = 0.80
@@ -117,6 +120,92 @@ def call_llm(
             num_ctx=DEFAULT_NUM_CTX,
             usage_pct=round(stats.tokens_in / DEFAULT_NUM_CTX * 100, 1),
         )
+
+    return content, stats
+
+
+def call_llm_vision(
+    image_path: str,
+    prompt: str,
+    model: str = DEFAULT_VISION_MODEL,
+    temperature: float = 0.1,
+    timeout_sec: int = DEFAULT_VISION_TIMEOUT_SEC,
+    num_predict: int = 1024,
+) -> Tuple[str, LLMCallStats]:
+    """Llamada multimodal al LLM (visión) vía Ollama.
+
+    Codifica la imagen en base64 puro y la envía con el prompt al modelo
+    multimodal indicado. Devuelve el contenido textual y las stats igual
+    que ``call_llm``.
+
+    Lanza ``LLMTimeoutError``, ``LLMConnectionError`` o ``LLMError``
+    descriptivos en caso de fallo. Si el modelo no está disponible
+    (p. ej. ``llava`` no instalado) el error de Ollama se propaga como
+    ``LLMError`` con un mensaje útil para el usuario.
+    """
+    try:
+        with open(image_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+    except FileNotFoundError as e:
+        raise LLMError(f"Imagen no encontrada: {image_path}") from e
+    except OSError as e:
+        raise LLMError(f"No se pudo leer la imagen '{image_path}': {e}") from e
+
+    messages = [
+        {
+            "role": "user",
+            "content": prompt,
+            "images": [img_b64],
+        }
+    ]
+
+    client = ollama.Client(timeout=timeout_sec)
+
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "options": {
+            "temperature": temperature,
+            "num_predict": num_predict,
+        },
+    }
+
+    t0 = time.perf_counter()
+    try:
+        response = client.chat(**kwargs)
+    except Exception as e:
+        name = type(e).__name__.lower()
+        msg = str(e).lower()
+        haystack = f"{name} {msg}"
+        if "timeout" in haystack:
+            raise LLMTimeoutError(str(e))
+        if "connect" in haystack or "request" in haystack:
+            raise LLMConnectionError(str(e))
+        if "model" in haystack and ("not found" in haystack or "no such" in haystack):
+            raise LLMError(
+                f"Modelo de visión '{model}' no disponible. "
+                f"Instálalo con: `ollama pull {model}`. Detalle: {e}"
+            )
+        raise LLMError(str(e))
+    t1 = time.perf_counter()
+
+    content = response["message"]["content"]
+
+    stats = LLMCallStats(
+        tokens_in=response.get("prompt_eval_count", 0),
+        tokens_out=response.get("eval_count", 0),
+        latency_ms=int((t1 - t0) * 1000),
+        retries_used=0,
+    )
+
+    log.info(
+        "llm_vision_call",
+        model=model,
+        tokens_in=stats.tokens_in,
+        tokens_out=stats.tokens_out,
+        latency_ms=stats.latency_ms,
+        image_path=image_path,
+    )
 
     return content, stats
 

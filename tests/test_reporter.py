@@ -281,3 +281,100 @@ def test_report_execution_renders_get_info_missing(monkeypatch):
     reporter.report_execution(result)
     output = buf.getvalue()
     assert "No existe" in output
+
+
+# ---------------------------------------------------------------------------
+# Tests para describe_screen y analyze_screen renderers
+# ---------------------------------------------------------------------------
+
+
+def test_render_describe_screen_shows_description(monkeypatch):
+    import io
+    buf = io.StringIO()
+    fake_console = reporter.Console(file=buf, force_terminal=True, width=200)
+    monkeypatch.setattr(reporter, "console", fake_console)
+
+    step = StepExecutionResult(
+        step_id="s1",
+        plugin="vision",
+        action="describe_screen",
+        success=True,
+        data={
+            "description": "Ventana del editor con un menú lateral",
+            "screenshot_path": "C:\\tmp\\shot.png",
+            "model_used": "llava",
+            "tokens_out": 42,
+            "latency_ms": 1234,
+        },
+        latency_ms=1234,
+    )
+    result = ExecutionResult(
+        plan_intent="vision", success=True, steps=[step],
+        total_latency_ms=1234, early_stopped=False,
+    )
+    reporter.report_execution(result)
+    output = buf.getvalue()
+    assert "Ventana del editor" in output
+    assert "shot.png" in output
+    assert "llava" in output
+
+
+def test_render_analyze_screen_shows_question_and_answer(monkeypatch):
+    import io
+    buf = io.StringIO()
+    fake_console = reporter.Console(file=buf, force_terminal=True, width=200)
+    monkeypatch.setattr(reporter, "console", fake_console)
+
+    step = StepExecutionResult(
+        step_id="s1",
+        plugin="vision",
+        action="analyze_screen",
+        success=True,
+        data={
+            "question": "¿Cuántos botones hay?",
+            "answer": "Veo tres botones en la barra superior",
+            "screenshot_path": "C:\\tmp\\shot.png",
+            "model_used": "llava",
+            "tokens_out": 30,
+            "latency_ms": 999,
+        },
+        latency_ms=999,
+    )
+    result = ExecutionResult(
+        plan_intent="vision", success=True, steps=[step],
+        total_latency_ms=999, early_stopped=False,
+    )
+    reporter.report_execution(result)
+    output = buf.getvalue()
+    assert "Cuántos botones" in output
+    assert "tres botones" in output.lower() or "Veo tres" in output
+    assert "shot.png" in output
+
+
+def test_render_describe_screen_handles_empty_description(monkeypatch):
+    import io
+    buf = io.StringIO()
+    fake_console = reporter.Console(file=buf, force_terminal=True, width=200)
+    monkeypatch.setattr(reporter, "console", fake_console)
+
+    step = StepExecutionResult(
+        step_id="s1",
+        plugin="vision",
+        action="describe_screen",
+        success=True,
+        data={
+            "description": "",
+            "screenshot_path": "C:\\tmp\\empty.png",
+            "model_used": "llava",
+            "tokens_out": 0,
+            "latency_ms": 50,
+        },
+        latency_ms=50,
+    )
+    result = ExecutionResult(
+        plan_intent="vision", success=True, steps=[step],
+        total_latency_ms=50, early_stopped=False,
+    )
+    reporter.report_execution(result)
+    output = buf.getvalue()
+    assert "Sin descripción" in output

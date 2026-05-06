@@ -27,6 +27,8 @@ class VisionPlugin(PluginBase):
             "screenshot": self._screenshot,
             "read_screen_text": self._read_screen_text,
             "find_on_screen": self._find_on_screen,
+            "describe_screen": self._describe_screen,
+            "analyze_screen": self._analyze_screen,
         }
 
     def execute(self, action, params, context, timeout_sec=30) -> PluginResult:
@@ -84,6 +86,112 @@ class VisionPlugin(PluginBase):
         return {
             "text": text.strip(),
             "screenshot_path": data["path"],
+        }
+
+    @staticmethod
+    def _build_spatial_map(img: "Image.Image", ocr_data: dict) -> str:
+        """Construye un mapa textual espacial de la pantalla dividida en 3 zonas verticales."""
+        width, height = img.width, img.height
+        zones: Dict[str, list] = {"top": [], "middle": [], "bottom": []}
+        for i, word in enumerate(ocr_data["text"]):
+            if not word or not word.strip():
+                continue
+            conf_raw = str(ocr_data["conf"][i])
+            try:
+                conf = float(conf_raw)
+            except ValueError:
+                conf = 0.0
+            if conf < 30:
+                continue
+            y = ocr_data["top"][i]
+            if y < height / 3:
+                zones["top"].append(word.strip())
+            elif y < 2 * height / 3:
+                zones["middle"].append(word.strip())
+            else:
+                zones["bottom"].append(word.strip())
+        lines = []
+        for zone, words in zones.items():
+            if words:
+                lines.append(f"[{zone}] {' '.join(words)}")
+        return "\n".join(lines) if lines else "[no text detected on screen]"
+
+    def _describe_screen(
+        self, region: Optional[Dict[str, int]] = None
+    ) -> Dict[str, Any]:
+        """Captura la pantalla, extrae texto con OCR y lo interpreta con llama3.1."""
+        import time
+        from sunny.brain.ollama_client import call_llm, DEFAULT_MODEL
+
+        t0 = time.perf_counter()
+        screenshot_data = self._screenshot(region)
+        img = Image.open(screenshot_data["path"])
+        ocr_data = pytesseract.image_to_data(img, lang="spa+eng", output_type=pytesseract.Output.DICT)
+        spatial_map = self._build_spatial_map(img, ocr_data)
+
+        system = (
+            "You are a screen reader assistant. "
+            "You receive OCR text extracted from a screenshot, organized by screen zones (top/middle/bottom). "
+            "Describe clearly what application and UI state is visible. "
+            "List open windows, visible buttons, menus, and any important text. "
+            "Be factual — only use what the OCR text provides."
+        )
+        user_prompt = (
+            f"OCR text extracted from the screen:\n\n{spatial_map}\n\n"
+            "Describe what is visible on the screen based on this text."
+        )
+        description, stats = call_llm(
+            user_prompt=user_prompt,
+            system_prompt=system,
+            json_mode=False,
+        )
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        return {
+            "description": description,
+            "screenshot_path": screenshot_data["path"],
+            "model_used": f"ocr+{DEFAULT_MODEL}",
+            "latency_ms": latency_ms,
+        }
+
+    def _analyze_screen(
+        self,
+        question: str,
+        region: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, Any]:
+        """Captura la pantalla, extrae texto con OCR y responde una pregunta con llama3.1."""
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError("'question' es obligatorio y no puede estar vacío")
+
+        import time
+        from sunny.brain.ollama_client import call_llm, DEFAULT_MODEL
+
+        t0 = time.perf_counter()
+        screenshot_data = self._screenshot(region)
+        img = Image.open(screenshot_data["path"])
+        ocr_data = pytesseract.image_to_data(img, lang="spa+eng", output_type=pytesseract.Output.DICT)
+        spatial_map = self._build_spatial_map(img, ocr_data)
+
+        system = (
+            "You are a screen reader assistant. "
+            "You receive OCR text extracted from a screenshot and answer questions about what is on screen. "
+            "Be factual — only use what the OCR text provides. Do not invent UI elements."
+        )
+        user_prompt = (
+            f"OCR text extracted from the screen:\n\n{spatial_map}\n\n"
+            f"Question: {question}"
+        )
+        answer, stats = call_llm(
+            user_prompt=user_prompt,
+            system_prompt=system,
+            json_mode=False,
+        )
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        return {
+            "answer": answer,
+            "question": question,
+            "screenshot_path": screenshot_data["path"],
+            "model_used": f"ocr+{DEFAULT_MODEL}",
+            "latency_ms": latency_ms,
         }
 
     def _find_on_screen(self, target: str) -> Dict[str, Any]:
