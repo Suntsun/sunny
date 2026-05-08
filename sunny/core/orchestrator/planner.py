@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from typing import List, Optional, Tuple
 
-from sunny.brain.ollama_client import call_llm_validated, LLMCallStats
+from sunny.brain.factory import get_brain_provider
+from sunny.brain.ollama_client import LLMCallStats
 from sunny.core.logging.logger import get_logger
 from sunny.core.models.plan import ComprehensionResult, PlanV2
+from sunny.core.orchestrator.enrichment import enrich
 from sunny.core.prompts.loader import load_system_prompt
 from sunny.core.session import manager as session
 
@@ -14,12 +16,14 @@ log = get_logger("sunny.core.orchestrator.planner")
 PHASE_TAG: str = "[FASE: PLANIFICACIÓN]"
 CONTEXT_TAG: str = "[CONTEXTO PREVIO]"
 COMPREHENSION_TAG: str = "[COMPRENSIÓN PREVIA]"
+GUIDANCE_TAG: str = "[GUÍA PREVIA]"
 
 
 def build_planning_user_prompt(
     user_input: str,
     comprehension: ComprehensionResult,
     context: Optional[List[dict]] = None,
+    guidance: Optional[str] = None,
 ) -> str:
     """Construye el prompt de usuario para la fase de planificación."""
     parts: List[str] = [PHASE_TAG]
@@ -28,6 +32,11 @@ def build_planning_user_prompt(
         parts.append("")
         parts.append(CONTEXT_TAG)
         parts.append(json.dumps(context, indent=2, ensure_ascii=False))
+
+    if guidance:
+        parts.append("")
+        parts.append(GUIDANCE_TAG)
+        parts.append(guidance)
 
     parts.append("")
     parts.append(COMPREHENSION_TAG)
@@ -54,9 +63,15 @@ def plan(
         log.info(event="planning_short_circuit", intent="conversation")
         return plan_obj, stats
 
-    system_prompt = load_system_prompt("v2")
+    guidance: Optional[str] = None
+    if comprehension.intent == "agent_loop":
+        guidance = enrich(comprehension, user_input)
+
+    system_prompt = load_system_prompt("v3")
     context = session.get_context()
-    user_prompt = build_planning_user_prompt(user_input, comprehension, context)
+    user_prompt = build_planning_user_prompt(
+        user_input, comprehension, context, guidance=guidance
+    )
 
     log.info(
         event="planning_start",
@@ -65,7 +80,7 @@ def plan(
         context_turns=len(context),
     )
 
-    result, stats = call_llm_validated(
+    result, stats = get_brain_provider().call_validated(
         user_prompt=user_prompt,
         system_prompt=system_prompt,
         schema=PlanV2,

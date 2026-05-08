@@ -2,7 +2,7 @@
 
 > Asistente de automatización de escritorio con IA para Windows 11 — 100% local, sin datos en la nube.
 
-![Tests](https://img.shields.io/badge/tests-534%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
+![Tests](https://img.shields.io/badge/tests-612%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
 
 ---
 
@@ -12,7 +12,7 @@ Sunny traduce órdenes en lenguaje natural a acciones concretas sobre el sistema
 
 El cerebro del sistema es un LLM que corre **completamente en local** mediante [Ollama](https://ollama.com/). Ningún dato abandona el equipo. El modelo por defecto es `llama3.1:8b-instruct-q5_K_M`, elegido por su equilibrio entre velocidad y calidad en la generación de JSON estructurado.
 
-El proyecto está en **alpha funcional**: el flujo completo opera sin errores, hay 534 tests passing (incluyendo 106 smoke tests de pipeline) y los 5 plugins principales están implementados. No es software de producción; es una herramienta personal en desarrollo activo.
+El proyecto está en **alpha funcional**: el flujo completo opera sin errores, hay 612 tests passing (incluyendo 106 smoke tests de pipeline, 31 tests de la abstracción `BrainProvider` y 9 tests de la capa de enriquecimiento) y los 5 plugins principales están implementados, más el motor de bucle agente visual. No es software de producción; es una herramienta personal en desarrollo activo.
 
 ---
 
@@ -67,6 +67,34 @@ pip install -e .
 
 Las dependencias se instalan automáticamente: `typer`, `rich`, `pydantic`, `ollama`, `send2trash`, `pyautogui`, `pywinauto`, `pillow`, `pytesseract`, `mss`, `structlog`.
 
+Para activar el provider Groq como cerebro alternativo, instalar el extra:
+
+```powershell
+pip install -e .[groq]
+```
+
+---
+
+## Configuración
+
+Sunny lee variables de entorno en arranque para seleccionar el cerebro y otros ajustes.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `SUNNY_BRAIN_PROVIDER` | `ollama` | Provider del LLM del cerebro. Valores: `ollama` (local) o `groq` (cloud). |
+| `GROQ_API_KEY` | — | API key de Groq. **Obligatoria** si `SUNNY_BRAIN_PROVIDER=groq`. También activa la capa de enriquecimiento (guía de UI para `agent_loop`) si está presente, independientemente del provider del cerebro. |
+| `SUNNY_GROQ_MODEL` | `llama-3.3-70b-versatile` | Modelo de Groq usado por el provider del cerebro y por la capa de enriquecimiento. |
+
+El comportamiento por defecto (sin variables) es idéntico al de versiones previas: 100% local vía Ollama. Para usar Groq:
+
+```powershell
+$env:SUNNY_BRAIN_PROVIDER = "groq"
+$env:GROQ_API_KEY = "gsk_..."
+sunny --new-session "lista los archivos de mi escritorio"
+```
+
+> Aviso: con `SUNNY_BRAIN_PROVIDER=groq` los prompts del usuario salen del equipo hacia la API de Groq. Solo activarlo si esa concesión es aceptable para el caso de uso.
+
 ---
 
 ## Uso
@@ -120,7 +148,12 @@ Elige [1/2/3]:
 sunny/
 ├── cli.py                     # Entrypoint Typer
 ├── brain/
-│   └── ollama_client.py       # Cliente Ollama — llama3.1, num_ctx=16384
+│   ├── ollama_client.py       # Cliente Ollama — llama3.1, num_ctx=16384
+│   ├── factory.py             # get_brain_provider() lee SUNNY_BRAIN_PROVIDER
+│   └── providers/
+│       ├── base.py            # BrainProvider (ABC)
+│       ├── ollama_provider.py # Wrapper sobre ollama_client (default)
+│       └── groq_provider.py   # Provider Groq (cloud, OpenAI-compatible)
 ├── core/
 │   ├── execution/
 │   │   └── engine.py          # Motor de ejecución por steps con timeout y threading
@@ -132,14 +165,17 @@ sunny/
 │   │   └── plan.py            # Pydantic: ComprehensionResult, PlanV2, Step
 │   ├── orchestrator/
 │   │   ├── confirmation.py    # Confirmaciones interactivas (sí/no, conflictos de fichero)
+│   │   ├── enrichment.py      # Capa opcional Groq: guía de UI antes de planificar agent_loop
 │   │   ├── reporter.py        # Salida Rich: tablas, árboles, paneles por acción
 │   │   └── validator.py       # Validación de planes contra catálogo de plugins
 │   ├── plugins/
 │   │   ├── base.py            # PluginBase + PluginResult
 │   │   └── registry.py        # Registro de plugins
 │   ├── prompts/
-│   │   ├── system_v1.txt      # System prompt original (no editar)
-│   │   └── system_v2.txt      # System prompt activo — incluye describe_screen y analyze_screen
+│   │   ├── system_v1.txt           # System prompt original (no editar)
+│   │   ├── system_v2.txt           # v2 — describe_screen y analyze_screen (no editar)
+│   │   ├── system_v3.txt           # System prompt activo — agent_loop, get_screen_state, wait_for_screen_text
+│   │   └── system_agent_loop_v1.txt # Prompt interno del agente visual (iteraciones del bucle)
 │   └── session/
 │       └── manager.py         # Gestión de sesiones, contexto de 3 turnos
 └── modules/
@@ -152,6 +188,7 @@ sunny/
 
 ### Flujo de ejecución
 
+**Modo estático (tareas directas):**
 ```
 Orden del usuario
        │
@@ -166,9 +203,36 @@ Orden del usuario
        │  si requiere confirmación → muestra plan y espera aprobación
        ▼
 [EJECUCIÓN] — steps en serie, timeout individual, early-stop en fallo
+  │  si el step es GUI → inyecta contexto de pantalla (OCR) antes de ejecutar
        │
        ▼
 [REPORTE] — salida Rich enriquecida según el tipo de acción ejecutada
+```
+
+**Modo agente visual (tareas con interfaz dinámica):**
+```
+Orden del usuario
+       │
+       ▼
+[COMPRENSIÓN] — intent: agent_loop
+       │
+       ▼
+[ENRIQUECIMIENTO]  (opcional, fail-safe)
+  Si GROQ_API_KEY está definida → consulta Groq por pasos de UI concretos
+  El resultado se inyecta como [GUÍA PREVIA] en el prompt del planner.
+  Si Groq no está disponible o falla, el pipeline continúa sin guía.
+       │
+       ▼
+[PLANIFICACIÓN] — genera PlanV2 con intent=agent_loop
+       │
+       ▼
+[BUCLE AGENTE]  ←──────────────────────────────┐
+  1. get_screen_state (OCR ~1-2s)              │
+  2. LLM decide siguiente acción               │
+  3. ejecuta (click, espera, tecla...)         │
+  4. ¿goal_reached? → SÍ: termina             │
+                    → NO: vuelve al paso 1 ───┘
+  Límite: MAX_LOOP_STEPS=20 / timeout configurable
 ```
 
 ---
@@ -219,10 +283,12 @@ Cada acción tiene su propio render en consola: tablas para listados, árbol Ric
 | `screenshot` | `region` *(opcional)* | Captura pantalla o región |
 | `read_screen_text` | `region` *(opcional)* | OCR directo, devuelve texto crudo |
 | `find_on_screen` | `target` | Localiza texto en pantalla y devuelve coordenadas |
-| `describe_screen` | `region` *(opcional)* | OCR + llama3.1: describe qué hay en pantalla |
+| `describe_screen` | `region` *(opcional)*, `raw: bool` | OCR + llama3.1: describe qué hay en pantalla. Con `raw=True` devuelve el mapa OCR directo (~1-2s) |
 | `analyze_screen` | `question`, `region` *(opcional)* | OCR + llama3.1: responde una pregunta sobre la pantalla |
+| `get_screen_state` | `region` *(opcional)* | OCR rápido sin LLM (~1-2s) — devuelve texto por zonas para uso del agente |
+| `wait_for_screen_text` | `text`, `timeout_sec`, `interval_sec` | Polling de pantalla hasta que el texto aparece o se agota el timeout |
 
-`describe_screen` y `analyze_screen` usan un enfoque híbrido: Tesseract extrae el texto real de la pantalla dividido en zonas (top/middle/bottom), y llama3.1 lo interpreta. Este enfoque elimina las alucinaciones de los modelos de visión puros y reduce la latencia a ~3-4 segundos frente a los ~15-20s de LLaVA.
+`describe_screen`, `analyze_screen` y `get_screen_state` usan un enfoque híbrido: Tesseract extrae el texto real de la pantalla dividido en zonas (top/middle/bottom). Sin alucinaciones. `wait_for_screen_text` es la pieza clave para sincronizar automatizaciones con el estado real de las aplicaciones.
 
 ### `gui` — Automatización de GUI
 
@@ -235,6 +301,29 @@ Cada acción tiene su propio render en consola: tablas para listados, árbol Ric
 | `move_mouse` | `x`, `y` |
 | `scroll` | `direction`, `amount` |
 | `drag` | `from_x`, `from_y`, `to_x`, `to_y` |
+
+### `agent_loop` — Bucle agente visual
+
+| Acción | Parámetros | Descripción |
+|---|---|---|
+| `run` | `goal`, `max_steps` | Bucle reactivo: observa pantalla → decide → ejecuta → repite |
+
+El motor `agent_loop` es el componente que permite a Sunny automatizar interfaces dinámicas cuyo estado no se conoce de antemano. En cada iteración: captura pantalla con OCR, el LLM decide la siguiente acción (click, tecla, espera...), la ejecuta, y evalúa si el objetivo está conseguido. Se detiene cuando el LLM declara `goal_reached: true`, cuando se alcanzan `max_steps`, o por timeout.
+
+### Capa de enriquecimiento — Guía de UI previa a la planificación
+
+Componente opcional que mejora la calidad de los planes `agent_loop` consultando Groq antes de planificar. Solo se activa cuando `intent=agent_loop` y existe `GROQ_API_KEY`.
+
+| Propiedad | Valor |
+|---|---|
+| Entrada | `ComprehensionResult` con `intent=agent_loop` |
+| Salida | Texto con 3-5 pasos concretos de UI (clics, escritura, atajos), inyectado como `[GUÍA PREVIA]` en el prompt del planner |
+| Modelo | `SUNNY_GROQ_MODEL` (default `llama-3.3-70b-versatile`) |
+| Timeout | 15 s, `temperature=0.1`, `max_tokens=200` |
+| Tolerancia a fallos | Si Groq no está disponible, falla, devuelve vacío o tarda demasiado, se devuelve `None` y el pipeline continúa sin guía |
+| Independiente del cerebro | Funciona con `SUNNY_BRAIN_PROVIDER=ollama` o `groq` por igual |
+
+El planner añade la guía en el bloque `[GUÍA PREVIA]` antes de `[COMPRENSIÓN PREVIA]`, y `system_v3.txt` instruye al LLM para usar esos pasos como orientación al construir el `goal` de `agent_loop.run`, manteniendo flexibilidad si la UI difiere de lo esperado.
 
 ### `ai_bridge` — Llamadas a IAs externas
 
@@ -258,20 +347,31 @@ Cada acción tiene su propio render en consola: tablas para listados, árbol Ric
 ## Tests
 
 ```powershell
-pytest --tb=short -q      # 534 tests, ~26 s
+pytest --tb=short -q      # 612 tests, ~37 s
 ```
 
 ```
 tests/
-├── modules/              # Plugins: files, os_control, vision, gui, ai_bridge
-├── test_comprehension.py # Fase de comprensión
-├── test_planner.py       # Fase de planificación
-├── test_validator.py     # Validación de planes
-├── test_engine.py        # Motor de ejecución
-├── test_memory.py        # Historial SQLite
-├── test_session.py       # Gestión de sesiones
-├── test_cli.py           # CLI end-to-end (mocks)
-└── test_smoke_100.py     # 106 smoke tests de pipeline completo
+├── brain/
+│   ├── test_factory.py            # Selección de provider vía SUNNY_BRAIN_PROVIDER (10 tests)
+│   ├── test_ollama_provider.py    # Delegación a ollama_client (8 tests)
+│   └── test_groq_provider.py      # JSON mode, retries con hint, health_check (13 tests)
+├── modules/
+│   ├── test_files.py              # Plugin files
+│   ├── test_os_control.py         # Plugin os_control
+│   ├── test_vision_reactive.py    # wait_for_screen_text, get_screen_state (11 tests)
+├── test_comprehension.py          # Fase de comprensión
+├── test_planner.py                # Fase de planificación
+├── test_enrichment.py             # Capa de enriquecimiento Groq + integración con planner (9 tests)
+├── test_validator.py              # Validación de planes (incluye agent_loop)
+├── test_engine.py                 # Motor + inyección de screen context
+├── test_agent_loop.py             # Bucle agente (núcleo)
+├── test_agent_loop_extended.py    # Bucle agente (casos extendidos)
+├── test_memory.py                 # Historial SQLite
+├── test_session.py                # Gestión de sesiones
+├── test_cli.py                    # CLI end-to-end (mocks)
+├── test_prompts.py                # system_v1/v2/v3 + agent_loop prompt
+└── test_smoke_100.py              # 106 smoke tests de pipeline completo
 ```
 
 Los smoke tests cubren los 10 componentes principales del pipeline (modelos, cliente LLM, comprensión, planificación, validador, engine, plugins, memoria) y validan el comportamiento end-to-end con mocks de Ollama.
@@ -304,9 +404,11 @@ Los DEPs resueltos se mantienen como referencia histórica.
 | DEP-21 | Listado recursivo de directorio no implementado como acción nativa | Files plugin | Baja | Abierto |
 | DEP-25 | Steam library scanner para abrir juegos por nombre (`_find_in_steam` via `libraryfolders.vdf`) | OS Control | Media | Abierto |
 | DEP-26 | OpenCode como backend de `ai_bridge` para tareas de código y automatización avanzada | AI Bridge | Alta | Abierto |
-| DEP-27 | Bucle de visión reactivo Fase 2: replanificación mid-ejecución basada en screenshot tras cada step | Engine / Vision | Alta | Abierto |
-| DEP-28 | Inyección automática de contexto visual al inicio de comandos GUI (screenshot antes de planificar) | Planner / Vision | Alta | Abierto |
+| DEP-27 | Bucle de visión reactivo Fase 2: replanificación mid-ejecución basada en screenshot tras cada step | Engine / Vision | Alta | ✅ Resuelto |
+| DEP-28 | Inyección automática de contexto visual al inicio de comandos GUI (screenshot antes de planificar) | Planner / Vision | Alta | ✅ Resuelto |
 | DEP-29 | Política de retención de screenshots con límite configurable y limpieza automática | Vision | Baja | Abierto |
+| DEP-30 | Abstracción `BrainProvider` con factory y backends Ollama/Groq vía `SUNNY_BRAIN_PROVIDER` | Brain | Alta | ✅ Resuelto |
+| DEP-31 | Capa de enriquecimiento opcional: consulta Groq por pasos de UI antes de planificar `agent_loop`, fail-safe (nunca bloquea el pipeline) | Orchestrator | Alta | ✅ Resuelto |
 
 ---
 
@@ -359,10 +461,11 @@ Test a escribir: `test_open_app_finds_steam_game_via_library_scanner` — mock d
 ### Smoke tests de vision y gui en producción
 
 Secuencia de escalado pendiente (SKILL-08):
-1. `sunny --yes "mira la pantalla y dime qué ves"` — describe_screen con OCR *(siguiente)*
-2. `sunny --yes "¿qué aplicaciones están abiertas ahora mismo?"` — analyze_screen
+1. `sunny --yes "mira la pantalla y dime qué ves"` — describe_screen con OCR ✅ verificado
+2. `sunny --yes "¿qué aplicaciones están abiertas ahora mismo?"` — analyze_screen *(siguiente)*
 3. `sunny --yes "abre el bloc de notas y escribe hola"` — os_control + gui encadenados
 4. `sunny --yes "abre discord y ve al canal general"` — flujo GUI con contexto visual
+5. `sunny --yes "abre factorio y empieza una partida nueva"` — agent_loop completo *(objetivo principal)*
 
 ---
 
@@ -375,4 +478,4 @@ El proyecto sigue un modelo multi-IA:
 
 ---
 
-*Sunny v0.1.0 — mayo 2026 · 534 tests · visión OCR+LLM implementada · bucle reactivo en progreso*
+*Sunny v0.1.0 — mayo 2026 · 612 tests · visión OCR+LLM · bucle agente visual · cerebro multi-provider (Ollama/Groq) · capa de enriquecimiento de UI*

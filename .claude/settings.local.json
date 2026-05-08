@@ -18,7 +18,8 @@
       "Read(//mnt/c/Users/**)",
       "Bash($PYTHON_WIN *)",
       "Bash(/mnt/c/Proyectos/sunny/.venv/Scripts/python.exe --version)",
-      "Bash(/mnt/c/Proyectos/sunny/.venv/Scripts/python.exe -m pytest --version)"
+      "Bash(/mnt/c/Proyectos/sunny/.venv/Scripts/python.exe -m pytest --version)",
+      "Bash(pytest *)"
     ]
   }
 }

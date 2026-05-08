@@ -22,6 +22,7 @@ PLUGIN_CATALOG: Dict[str, Set[str]] = {
     "vision": {
         "screenshot", "read_screen_text", "find_on_screen",
         "describe_screen", "analyze_screen",
+        "get_screen_state", "wait_for_screen_text",
     },
     "gui": {
         "click", "click_on_text", "type_text", "press_key",
@@ -29,6 +30,9 @@ PLUGIN_CATALOG: Dict[str, Set[str]] = {
     },
     "ai_bridge": {
         "ask_external",
+    },
+    "agent_loop": {
+        "run",
     },
 }
 
@@ -72,6 +76,8 @@ ACTION_SIGNATURES: Dict[str, Dict[str, List[str]]] = {
         "find_on_screen": ["target"],
         "describe_screen": [],
         "analyze_screen": ["question"],
+        "get_screen_state": [],
+        "wait_for_screen_text": ["text"],
     },
     "gui": {
         "click": ["x", "y"],
@@ -84,6 +90,9 @@ ACTION_SIGNATURES: Dict[str, Dict[str, List[str]]] = {
     },
     "ai_bridge": {
         "ask_external": ["provider", "prompt"],
+    },
+    "agent_loop": {
+        "run": ["goal"],
     },
 }
 

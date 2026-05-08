@@ -12,6 +12,7 @@ IntentType = Literal[
     "gui",
     "ai_bridge",
     "conversation",
+    "agent_loop",
 ]
 
 

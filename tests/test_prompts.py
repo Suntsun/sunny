@@ -161,11 +161,54 @@ def test_load_system_prompt_v2_keeps_v1_actions():
         assert a in c
 
 
-def test_default_version_is_v2():
-    """El default de load_system_prompt debe ser v2 tras la fase de visión."""
+def test_default_version_is_v3():
+    """El default de load_system_prompt debe ser v3 tras la fase de visión reactiva."""
     default_content = loader.load_system_prompt()
-    v2_content = loader.load_system_prompt("v2")
-    assert default_content == v2_content
+    v3_content = loader.load_system_prompt("v3")
+    assert default_content == v3_content
+
+
+def test_system_v3_default_prompt():
+    """Verifica explícitamente que cargar sin argumentos devuelve v3."""
+    assert loader.load_system_prompt() == loader.load_system_prompt("v3")
+
+
+def test_system_v3_contains_wait_for_screen_text():
+    c = loader.load_system_prompt("v3")
+    assert "wait_for_screen_text" in c
+
+
+def test_system_v3_contains_get_screen_state():
+    c = loader.load_system_prompt("v3")
+    assert "get_screen_state" in c
+
+
+def test_system_v3_contains_agent_loop_section():
+    c = loader.load_system_prompt("v3")
+    assert "## agent_loop" in c
+    assert "agent_loop" in c
+    assert '"intent":"agent_loop"' in c
+
+
+def test_v2_unchanged_after_v3_creation():
+    """v2 debe seguir cargando exactamente igual; las acciones nuevas NO aparecen en v2."""
+    c2 = loader.load_system_prompt("v2")
+    assert "wait_for_screen_text" not in c2
+    assert "get_screen_state" not in c2
+    assert "## agent_loop" not in c2
+    assert "# ROL Y MISIÓN" in c2
+    assert "describe_screen" in c2
+    assert "analyze_screen" in c2
+
+
+def test_v3_keeps_all_v2_actions():
+    c = loader.load_system_prompt("v3")
+    for a in [
+        "read_file", "write_file", "delete", "open_app",
+        "screenshot", "click", "type_text", "ask_external",
+        "describe_screen", "analyze_screen",
+    ]:
+        assert a in c
 
 
 def test_system_v1_unchanged():

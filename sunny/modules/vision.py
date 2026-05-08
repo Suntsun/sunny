@@ -29,6 +29,8 @@ class VisionPlugin(PluginBase):
             "find_on_screen": self._find_on_screen,
             "describe_screen": self._describe_screen,
             "analyze_screen": self._analyze_screen,
+            "get_screen_state": self._get_screen_state,
+            "wait_for_screen_text": self._wait_for_screen_text,
         }
 
     def execute(self, action, params, context, timeout_sec=30) -> PluginResult:
@@ -117,9 +119,18 @@ class VisionPlugin(PluginBase):
         return "\n".join(lines) if lines else "[no text detected on screen]"
 
     def _describe_screen(
-        self, region: Optional[Dict[str, int]] = None
+        self,
+        region: Optional[Dict[str, int]] = None,
+        raw: bool = False,
     ) -> Dict[str, Any]:
-        """Captura la pantalla, extrae texto con OCR y lo interpreta con llama3.1."""
+        """Captura la pantalla, extrae texto con OCR y lo interpreta con llama3.1.
+
+        Si raw=True, devuelve directamente el resultado de get_screen_state
+        (OCR sin LLM) para uso rápido por parte del motor reactivo.
+        """
+        if raw:
+            return self._get_screen_state(region)
+
         import time
         from sunny.brain.ollama_client import call_llm, DEFAULT_MODEL
 
@@ -192,6 +203,72 @@ class VisionPlugin(PluginBase):
             "screenshot_path": screenshot_data["path"],
             "model_used": f"ocr+{DEFAULT_MODEL}",
             "latency_ms": latency_ms,
+        }
+
+    def _get_screen_state(
+        self, region: Optional[Dict[str, int]] = None
+    ) -> Dict[str, Any]:
+        """OCR rápido de la pantalla dividido en zonas, sin LLM."""
+        import time
+
+        t0 = time.perf_counter()
+        screenshot_data = self._screenshot(region)
+        img = Image.open(screenshot_data["path"])
+        ocr_data = pytesseract.image_to_data(
+            img, lang="spa+eng", output_type=pytesseract.Output.DICT
+        )
+        spatial_map = self._build_spatial_map(img, ocr_data)
+        return {
+            "screen_text": spatial_map,
+            "screenshot_path": screenshot_data["path"],
+            "latency_ms": int((time.perf_counter() - t0) * 1000),
+        }
+
+    def _wait_for_screen_text(
+        self,
+        text: str,
+        timeout_sec: int = 30,
+        interval_sec: float = 1.5,
+        region: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, Any]:
+        """Espera hasta que el texto aparezca en pantalla o expire el timeout.
+
+        No lanza excepción si no aparece: devuelve found=False y deja
+        al engine/agente decidir qué hacer.
+        """
+        import time
+
+        start = time.time()
+        deadline = start + timeout_sec
+        attempts = 0
+        last_screenshot_path: Optional[str] = None
+
+        while time.time() < deadline:
+            attempts += 1
+            screenshot_data = self._screenshot(region)
+            last_screenshot_path = screenshot_data["path"]
+            img = Image.open(screenshot_data["path"])
+            ocr = pytesseract.image_to_data(
+                img, lang="spa+eng", output_type=pytesseract.Output.DICT
+            )
+            target = text.lower()
+            for word in ocr["text"]:
+                if word and target in word.lower():
+                    return {
+                        "found": True,
+                        "text": text,
+                        "elapsed_sec": round(time.time() - start, 1),
+                        "attempts": attempts,
+                        "screenshot_path": screenshot_data["path"],
+                    }
+            time.sleep(interval_sec)
+
+        return {
+            "found": False,
+            "text": text,
+            "elapsed_sec": round(time.time() - start, 1),
+            "attempts": attempts,
+            "screenshot_path": last_screenshot_path or "",
         }
 
     def _find_on_screen(self, target: str) -> Dict[str, Any]:

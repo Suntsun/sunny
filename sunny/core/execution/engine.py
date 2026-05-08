@@ -107,6 +107,41 @@ def execute_plan(
     )
 
 
+_GUI_CONTEXT_PLUGINS: set = {"gui"}
+_VISION_CONTEXT_ACTIONS: set = {"find_on_screen", "click_on_text"}
+
+
+def _inject_screen_context_if_needed(
+    step: Step,
+    registry: PluginRegistry,
+    context: Dict[str, Any],
+) -> None:
+    """Inyecta context['screen_state'] cuando el step es GUI o visión interactiva.
+
+    No añade latencia a steps que no necesitan contexto visual. Si vision
+    falla o no está registrado, se ignora silenciosamente.
+    """
+    needs_context = (
+        step.plugin in _GUI_CONTEXT_PLUGINS
+        or (step.plugin == "vision" and step.action in _VISION_CONTEXT_ACTIONS)
+    )
+    if not needs_context:
+        return
+
+    vision_plugin = registry.get("vision")
+    if vision_plugin is None:
+        return
+
+    try:
+        result = vision_plugin.execute("get_screen_state", {}, context, 30)
+    except Exception:
+        return
+
+    if result.success and isinstance(result.data, dict):
+        context["screen_state"] = result.data.get("screen_text", "") or ""
+        context["last_screenshot"] = result.data.get("screenshot_path", "") or ""
+
+
 def _execute_step(
     step: Step,
     registry: PluginRegistry,
@@ -114,6 +149,12 @@ def _execute_step(
 ) -> StepExecutionResult:
     """Ejecuta un step individual con control de timeout."""
     start = time.perf_counter()
+
+    if step.plugin == "agent_loop":
+        return _execute_agent_loop_step(step, registry, context, start)
+
+    _inject_screen_context_if_needed(step, registry, context)
+
     plugin = registry.get(step.plugin)
 
     if plugin is None:
@@ -220,4 +261,99 @@ def _execute_step(
         error=pr.error,
         error_type=pr.error_type,
         latency_ms=elapsed_ms,
+    )
+
+
+def _execute_agent_loop_step(
+    step: Step,
+    registry: PluginRegistry,
+    context: Dict[str, Any],
+    start: float,
+) -> StepExecutionResult:
+    """Ejecuta un step de agent_loop delegando en run_agent_loop().
+
+    Importado de forma lazy para evitar ciclos: agent_loop.py importa
+    _execute_step y StepExecutionResult de este módulo.
+    """
+    from sunny.core.execution.agent_loop import run_agent_loop
+
+    if step.action != "run":
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return StepExecutionResult(
+            step_id=step.step_id,
+            plugin=step.plugin,
+            action=step.action,
+            success=False,
+            error=f"agent_loop no soporta action '{step.action}'",
+            error_type="UnsupportedAction",
+            latency_ms=elapsed,
+        )
+
+    goal = step.params.get("goal", "")
+    if not goal or not isinstance(goal, str):
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return StepExecutionResult(
+            step_id=step.step_id,
+            plugin=step.plugin,
+            action=step.action,
+            success=False,
+            error="param 'goal' requerido y no vacío",
+            error_type="ValueError",
+            latency_ms=elapsed,
+        )
+
+    max_steps = step.params.get("max_steps")
+    if not isinstance(max_steps, int) or max_steps <= 0:
+        max_steps = None
+
+    deadline_sec = float(step.timeout_sec) if step.timeout_sec else None
+
+    try:
+        loop_result = run_agent_loop(
+            goal=goal,
+            registry=registry,
+            context=context,
+            max_steps=max_steps if max_steps is not None else 20,
+            deadline_sec=deadline_sec,
+        )
+    except Exception as e:
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return StepExecutionResult(
+            step_id=step.step_id,
+            plugin=step.plugin,
+            action=step.action,
+            success=False,
+            error=str(e),
+            error_type=type(e).__name__,
+            latency_ms=elapsed,
+        )
+
+    elapsed = int((time.perf_counter() - start) * 1000)
+    data = {
+        "goal": loop_result.goal,
+        "success": loop_result.success,
+        "stopped_reason": loop_result.stopped_reason,
+        "steps_executed": [
+            {
+                "step_id": s.step_id,
+                "plugin": s.plugin,
+                "action": s.action,
+                "success": s.success,
+                "error": s.error,
+                "latency_ms": s.latency_ms,
+            }
+            for s in loop_result.steps_executed
+        ],
+        "total_latency_ms": loop_result.total_latency_ms,
+        "final_screen_state": loop_result.final_screen_state,
+    }
+    return StepExecutionResult(
+        step_id=step.step_id,
+        plugin=step.plugin,
+        action=step.action,
+        success=loop_result.success,
+        data=data,
+        error=None if loop_result.success else f"agent_loop terminó con motivo '{loop_result.stopped_reason}'",
+        error_type=None if loop_result.success else "AgentLoopFailed",
+        latency_ms=elapsed,
     )

@@ -1,0 +1,213 @@
+================================================================================
+                        SUNNY — CARTA DE PRESENTACIÓN
+                  Asistente de automatización de escritorio con IA
+================================================================================
+
+
+¿QUÉ ES SUNNY?
+──────────────
+
+Sunny es un asistente de inteligencia artificial que vive en tu ordenador y
+ejecuta tareas por ti. No es una aplicación más que hay que aprender a usar.
+Es una capa de inteligencia que se sitúa entre el usuario y el sistema
+operativo, y entiende lo que quieres hacer cuando lo dices en lenguaje natural.
+
+    Usuario: "mueve todos los archivos de la carpeta Descargas que tengan
+              más de 30 días a una carpeta de archivo en Documentos"
+
+    Sunny:   Entendido. Planificando... Ejecutando... Hecho.
+
+Sin clics. Sin buscar opciones en menús. Sin abrir el explorador de archivos.
+Sin recordar rutas. Solo lenguaje natural.
+
+
+EL PROBLEMA QUE RESUELVE
+─────────────────────────
+
+El ordenador moderno es increíblemente potente. Y también increíblemente
+ineficiente para el humano que lo usa.
+
+Cada vez que alguien quiere hacer algo en su ordenador — organizar archivos,
+abrir aplicaciones, buscar documentos, monitorizar procesos — tiene que
+traducir mentalmente su intención en una secuencia de acciones físicas:
+clics, navegación, shortcuts, búsquedas. Esa traducción consume tiempo y
+atención que podría dedicarse al trabajo real.
+
+Sunny elimina esa fricción. El usuario expresa su intención. Sunny la ejecuta.
+
+
+CAPACIDADES ACTUALES
+─────────────────────
+
+Sunny opera hoy sobre cinco áreas de control del escritorio:
+
+ARCHIVOS Y DOCUMENTOS
+  Leer, escribir, mover, copiar, eliminar archivos y carpetas. Buscar por
+  nombre, patrón o tipo. Listar directorios. Ver árbol de carpetas. Eliminar
+  archivos vacíos en lote. Gestión de papelera de reciclaje.
+
+SISTEMA OPERATIVO
+  Abrir y cerrar aplicaciones. Listar procesos en ejecución. Obtener
+  información del sistema (CPU, RAM, disco). Bloquear pantalla. Programar
+  apagado o reinicio. Pausar ejecución.
+
+VISIÓN DE PANTALLA
+  Capturar lo que hay en pantalla. Leer el texto visible con OCR. Localizar
+  elementos de interfaz. Describir el estado actual de la pantalla en
+  lenguaje natural.
+
+AUTOMATIZACIÓN DE INTERFAZ
+  Hacer clic en coordenadas o sobre texto visible. Escribir texto. Presionar
+  teclas y combinaciones. Mover el ratón. Hacer scroll. Arrastrar elementos.
+
+COMUNICACIÓN CON OTRAS IAs
+  Arquitectura preparada para delegar tareas a otros modelos de inteligencia
+  artificial — Claude, ChatGPT, DeepSeek, Gemini — cuando la tarea lo
+  requiera.
+
+
+CÓMO FUNCIONA POR DENTRO
+──────────────────────────
+
+Sunny corre completamente en local. No envía datos a servidores externos.
+No requiere conexión a internet. No tiene suscripciones. El cerebro del
+sistema es un modelo de lenguaje que funciona en el propio ordenador del
+usuario mediante Ollama.
+
+-A menos que el modelo cambie.
+
+El flujo es siempre el mismo:
+
+  1. El usuario escribe su orden en lenguaje natural
+  2. Sunny comprende la intención y la reformula para confirmar
+  3. Sunny genera un plan de pasos ejecutables
+  4. El usuario aprueba (o no) antes de que se ejecute nada destructivo
+  5. Sunny ejecuta y reporta el resultado
+
+La seguridad es estructural: ninguna acción irreversible se ejecuta sin
+confirmación explícita del usuario.
+
+
+LO QUE HACE QUE SUNNY SEA DIFERENTE
+──────────────────────────────────────
+
+La mayoría de los asistentes de IA responden preguntas. Sunny ejecuta acciones.
+
+La mayoría de los asistentes de IA viven en la nube. Sunny vive en tu máquina.
+
+La mayoría de los asistentes de IA son herramientas verticales para una tarea
+específica. Sunny es horizontal: entiende el escritorio como un todo y puede
+combinar acciones de distintos dominios en un solo flujo.
+
+    "Abre Chrome, busca el informe del Q3, descárgalo, muévelo a la carpeta
+     Proyectos y avísame cuando esté listo."
+
+Eso es un flujo de cuatro acciones en dominios distintos. Sunny lo planifica
+como un solo plan y lo ejecuta en secuencia.
+
+
+POTENCIAL A CORTO PLAZO
+─────────────────────────
+
+Las siguientes capacidades están en desarrollo activo o son inmediatamente
+implementables sobre la arquitectura actual:
+
+BUCLE DE VISIÓN REACTIVO
+  Sunny tomará una captura de pantalla antes de cada acción de interfaz,
+  analizará qué hay en pantalla, y decidirá qué hacer basándose en lo que
+  ve. Si una aplicación no ha cargado, esperará. Si el botón buscado no
+  está donde se esperaba, lo buscará. Esto convierte a Sunny en un agente
+  visual real, capaz de navegar interfaces sin conocer su estructura de
+  antemano.
+
+AUTOMATIZACIÓN DE FLUJOS COMPLEJOS
+  Hoy Sunny ejecuta planes lineales. La arquitectura soporta en breve planes
+  condicionales: "si encuentra el archivo, muévelo; si no, créalo".
+
+INTEGRACIÓN CON APLICACIONES WEB
+  Conectar Sunny a navegadores para automatizar formularios, extraer datos
+  de páginas, interactuar con aplicaciones SaaS.
+
+MEMORIA Y APRENDIZAJE DE CONTEXTO
+  Sunny ya mantiene contexto de sesión. El siguiente paso es memoria
+  persistente: recordar preferencias, rutas habituales, flujos frecuentes.
+
+
+POTENCIAL A MEDIO PLAZO
+─────────────────────────
+
+SUNNY COMO EMPLEADO DIGITAL
+  Un usuario podría delegar en Sunny una tarea compleja al inicio del día
+  y encontrarla terminada horas después. Sunny ejecutaría los pasos, tomaría
+  decisiones en los puntos de baja incertidumbre, y escalaría al usuario
+  solo cuando necesite aprobación.
+
+SUNNY EN ENTORNOS CORPORATIVOS
+  Desplegado en una organización, Sunny podría estandarizar flujos de trabajo:
+  generación de informes, organización de archivos corporativos, monitorización
+  de sistemas, comunicación con otras herramientas internas.
+
+SUNNY COMO INTERFAZ UNIVERSAL
+  El teclado y el ratón son interfaces del siglo XX. Sunny es la capa de
+  abstracción que hace que el ordenador responda al lenguaje humano. Para
+  usuarios no técnicos, esto es transformador: acceder a la potencia del
+  sistema operativo sin necesidad de saber cómo funciona.
+
+SUNNY + CLAUDE API (MODO NUBE OPCIONAL)
+  La arquitectura de Sunny permite conectar modelos de lenguaje más potentes
+  — como Claude Opus o GPT-4 — como backend de razonamiento. Con ello, la
+  capacidad de comprensión y planificación aumenta exponencialmente, mientras
+  el usuario mantiene el control sobre qué datos salen de su máquina y cuáles
+  no.
+
+
+POTENCIAL A LARGO PLAZO
+─────────────────────────
+
+El ordenador personal lleva décadas siendo una herramienta que requiere que
+el humano aprenda su lenguaje. Comandos, interfaces, shortcuts, estructuras
+de carpetas, APIs.
+
+Sunny invierte esa relación. El ordenador aprende el lenguaje del humano.
+
+A largo plazo, Sunny es la base sobre la que construir un sistema operativo
+conversacional: una capa de inteligencia que gestiona todos los recursos del
+equipo — archivos, procesos, aplicaciones, redes, dispositivos — respondiendo
+a instrucciones en lenguaje natural, con contexto, con memoria, con capacidad
+de anticipación.
+
+No es ciencia ficción. La tecnología necesaria ya existe. Sunny es la
+demostración funcional de que es posible hoy, con hardware de consumo, sin
+dependencias de nube, sin coste por uso.
+
+
+ESTADO ACTUAL DEL PROYECTO
+────────────────────────────
+
+  • Versión:       0.1.0 alpha funcional
+  • Plataforma:    Windows 11
+  • Tests:         534 passing, 0 failing
+  • Plugins:       5 activos (files, os_control, vision, gui, ai_bridge)
+  • Modelo:        llama3.1:8b — corre completamente en local
+  • Desarrollo:    activo, sesiones diarias
+  • Arquitectura:  modular, extensible, preparada para escalar
+
+
+EN RESUMEN
+───────────
+
+Sunny no es un chatbot. Es un operador de escritorio con inteligencia
+artificial que entiende lo que quieres, planifica cómo conseguirlo, y lo
+ejecuta — pidiendo permiso antes de hacer algo irreversible, reportando cada
+paso, y aprendiendo el contexto de trabajo del usuario.
+
+La visión es clara: que el ordenador deje de ser una herramienta que hay que
+operar y se convierta en un colaborador que entiende.
+
+Sunny es el primer paso en esa dirección.
+
+
+────────────────────────────────────────────────────────────────────────────────
+  Sunny v0.1.0 · Mayo 2026 · Proyecto en desarrollo activo
+  Contacto: mahesking98@gmail.com
+────────────────────────────────────────────────────────────────────────────────

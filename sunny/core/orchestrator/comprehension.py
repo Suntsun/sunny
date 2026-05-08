@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import List, Optional, Tuple
 
-from sunny.brain.ollama_client import call_llm_validated, LLMCallStats
+from sunny.brain.factory import get_brain_provider
+from sunny.brain.ollama_client import LLMCallStats
 from sunny.core.logging.logger import get_logger
 from sunny.core.models.plan import ComprehensionResult
 from sunny.core.prompts.loader import load_system_prompt
@@ -35,7 +36,7 @@ def build_comprehension_user_prompt(
 
 def comprehend(user_input: str) -> Tuple[ComprehensionResult, LLMCallStats]:
     """Ejecuta la fase de comprensión end-to-end."""
-    system_prompt = load_system_prompt("v2")
+    system_prompt = load_system_prompt("v3")
     context = session.get_context()
 
     user_prompt = build_comprehension_user_prompt(user_input, context)
@@ -46,7 +47,7 @@ def comprehend(user_input: str) -> Tuple[ComprehensionResult, LLMCallStats]:
         context_turns=len(context),
     )
 
-    result, stats = call_llm_validated(
+    result, stats = get_brain_provider().call_validated(
         user_prompt=user_prompt,
         system_prompt=system_prompt,
         schema=ComprehensionResult,

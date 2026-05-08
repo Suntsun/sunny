@@ -23,6 +23,9 @@ dependencies = [
     "send2trash",
 ]
 
+[project.optional-dependencies]
+groq = ["groq"]
+
 [project.scripts]
 sunny = "sunny.cli:app"
 

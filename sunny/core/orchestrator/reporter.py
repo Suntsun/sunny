@@ -121,6 +121,12 @@ def _render_semantic_output(result: ExecutionResult) -> None:
             _render_describe_screen(data)
         elif plugin == "vision" and action == "analyze_screen":
             _render_analyze_screen(data)
+        elif plugin == "vision" and action == "wait_for_screen_text":
+            _render_wait_for_screen_text(data)
+        elif plugin == "vision" and action == "get_screen_state":
+            _render_get_screen_state(data)
+        elif plugin == "agent_loop" and action == "run":
+            _render_agent_loop_result(data)
 
 def _render_get_info(data: dict) -> None:
     """Renderiza información de un archivo o carpeta."""
@@ -330,6 +336,68 @@ def _render_analyze_screen(data: dict) -> None:
     )
     if screenshot_path:
         console.print(f"[dim]Captura: {screenshot_path}[/dim]")
+
+
+def _render_wait_for_screen_text(data: dict) -> None:
+    """Renderiza resultado de espera por texto en pantalla."""
+    found = bool(data.get("found", False))
+    text = data.get("text", "")
+    elapsed = data.get("elapsed_sec", 0)
+    attempts = data.get("attempts", 0)
+
+    if found:
+        body = f'[green]✔[/green] Texto encontrado: "{text}" — {elapsed}s / {attempts} intentos'
+    else:
+        body = f'[yellow]⚠[/yellow] Texto "{text}" no apareció en {elapsed}s ({attempts} intentos)'
+    console.print(Panel(body, title="[bold]Esperando texto[/bold]", expand=False))
+
+
+def _render_get_screen_state(data: dict) -> None:
+    """Renderiza el estado raw OCR de la pantalla."""
+    screen_text = data.get("screen_text", "") or "[dim]Sin texto detectado.[/dim]"
+    latency = data.get("latency_ms", 0)
+    console.print(
+        Panel(
+            screen_text,
+            title=f"[bold]Estado de pantalla[/bold] [dim]({latency} ms)[/dim]",
+            expand=False,
+        )
+    )
+
+
+def _render_agent_loop_result(data: dict) -> None:
+    """Renderiza tabla de pasos ejecutados por el bucle agente."""
+    goal = data.get("goal", "")
+    success = bool(data.get("success", False))
+    stopped_reason = data.get("stopped_reason", "")
+    steps = data.get("steps_executed", []) or []
+    total_latency = data.get("total_latency_ms", 0)
+
+    title_color = "green" if success else "yellow"
+    title = f"[{title_color}]Bucle agente — {stopped_reason}[/{title_color}]"
+    table = Table(title=title)
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Acción")
+    table.add_column("Resultado")
+    table.add_column("Latencia")
+
+    for i, step in enumerate(steps, start=1):
+        plugin = step.get("plugin", "")
+        action = step.get("action", "")
+        ok = bool(step.get("success", False))
+        err = step.get("error") or ""
+        latency = step.get("latency_ms", 0)
+        if ok:
+            table.add_row(str(i), f"{plugin}.{action}", "[green]✔[/green]", f"{latency} ms")
+        else:
+            table.add_row(str(i), f"{plugin}.{action}", f"[red]✗ {err}[/red]", f"{latency} ms")
+
+    console.print(Panel(f"Objetivo: {goal}", expand=False))
+    if steps:
+        console.print(table)
+    else:
+        console.print("[dim]Sin acciones ejecutadas en el bucle.[/dim]")
+    console.print(f"[dim]Total bucle: {total_latency} ms[/dim]")
 
 
 def _format_size(size: int) -> str:

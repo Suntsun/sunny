@@ -242,3 +242,95 @@ def test_validate_analyze_screen_does_not_require_confirmation():
     )
     r = validate_plan(p)
     assert not r.effective_requires_confirmation
+
+
+# ---------------------------------------------------------------------------
+# Tests para visión reactiva y agent_loop
+# ---------------------------------------------------------------------------
+
+
+def test_validator_accepts_wait_for_screen_text():
+    p = _plan(
+        intent="vision",
+        steps=[
+            _step(
+                plugin="vision",
+                action="wait_for_screen_text",
+                params={"text": "PLAY", "timeout_sec": 30},
+            )
+        ],
+    )
+    r = validate_plan(p)
+    assert r.valid
+
+
+def test_validator_wait_for_screen_text_requires_text():
+    p = _plan(
+        intent="vision",
+        steps=[
+            _step(plugin="vision", action="wait_for_screen_text", params={})
+        ],
+    )
+    r = validate_plan(p)
+    assert not r.valid
+    assert any("text" in e for e in r.errors)
+
+
+def test_validator_accepts_get_screen_state():
+    p = _plan(
+        intent="vision",
+        steps=[_step(plugin="vision", action="get_screen_state", params={})],
+    )
+    r = validate_plan(p)
+    assert r.valid
+
+
+def test_validator_accepts_agent_loop_run():
+    p = _plan(
+        intent="agent_loop",
+        steps=[
+            _step(
+                plugin="agent_loop",
+                action="run",
+                params={"goal": "abrir factorio", "max_steps": 10},
+            )
+        ],
+    )
+    r = validate_plan(p)
+    assert r.valid
+
+
+def test_validator_agent_loop_requires_goal():
+    p = _plan(
+        intent="agent_loop",
+        steps=[_step(plugin="agent_loop", action="run", params={})],
+    )
+    r = validate_plan(p)
+    assert not r.valid
+    assert any("goal" in e for e in r.errors)
+
+
+def test_validator_rejects_unknown_agent_loop_action():
+    p = _plan(
+        intent="agent_loop",
+        steps=[
+            _step(plugin="agent_loop", action="explore", params={"goal": "x"})
+        ],
+    )
+    r = validate_plan(p)
+    assert not r.valid
+
+
+def test_validator_agent_loop_does_not_require_confirmation():
+    p = _plan(
+        intent="agent_loop",
+        steps=[
+            _step(
+                plugin="agent_loop",
+                action="run",
+                params={"goal": "abrir factorio"},
+            )
+        ],
+    )
+    r = validate_plan(p)
+    assert not r.effective_requires_confirmation

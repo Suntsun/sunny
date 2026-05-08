@@ -158,3 +158,98 @@ def test_execute_default_context_is_empty_dict():
     reg = PluginRegistry(); reg.register(CtxPlugin())
     r = execute_plan(_plan([_step(plugin="ctx")]), reg)
     assert r.steps[0].data == {}
+
+
+# ---------------------------------------------------------------------------
+# Tests para inyección de screen context y delegación a agent_loop
+# ---------------------------------------------------------------------------
+
+
+class _VisionContextPlugin(PluginBase):
+    name = "vision"
+
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, action, params, context, timeout_sec=30):
+        self.calls.append(action)
+        if action == "get_screen_state":
+            return PluginResult(True, data={"screen_text": "[top] PLAY", "screenshot_path": "/tmp/x.png"})
+        return PluginResult(True, data={"action": action})
+
+
+class _CtxCapturePlugin(PluginBase):
+    name = "gui"
+
+    def __init__(self):
+        self.captured_ctx = None
+
+    def execute(self, action, params, context, timeout_sec=30):
+        self.captured_ctx = dict(context)
+        return PluginResult(True, data={"ok": True})
+
+
+def test_engine_injects_screen_context_for_gui_steps():
+    reg = PluginRegistry()
+    reg.register(_VisionContextPlugin())
+    gui = _CtxCapturePlugin()
+    reg.register(gui)
+    plan = _plan([Step(step_id="s1", plugin="gui", action="click", params={"x": 1, "y": 2}, depends_on=[])], intent="gui")
+    execute_plan(plan, reg)
+    assert gui.captured_ctx is not None
+    assert gui.captured_ctx.get("screen_state") == "[top] PLAY"
+    assert gui.captured_ctx.get("last_screenshot") == "/tmp/x.png"
+
+
+def test_engine_skips_screen_context_for_file_steps():
+    class _Files(PluginBase):
+        name = "files"
+
+        def __init__(self):
+            self.captured_ctx = None
+
+        def execute(self, action, params, context, timeout_sec=30):
+            self.captured_ctx = dict(context)
+            return PluginResult(True, data={"ok": True})
+
+    reg = PluginRegistry()
+    vision = _VisionContextPlugin()
+    files_plugin = _Files()
+    reg.register(vision)
+    reg.register(files_plugin)
+    plan = _plan([Step(step_id="s1", plugin="files", action="read_file", params={"path": "x"}, depends_on=[])], intent="files")
+    execute_plan(plan, reg)
+    assert "screen_state" not in files_plugin.captured_ctx
+    assert vision.calls == []  # vision no fue invocado
+
+
+def test_engine_executes_agent_loop_step_via_run_agent_loop(monkeypatch):
+    from sunny.core.execution import engine as eng
+    from sunny.core.execution.agent_loop import AgentLoopResult
+
+    captured = {}
+
+    def fake_loop(goal, registry, context=None, max_steps=20, deadline_sec=None):
+        captured["goal"] = goal
+        captured["max_steps"] = max_steps
+        captured["deadline_sec"] = deadline_sec
+        return AgentLoopResult(
+            goal=goal, success=True, steps_executed=[],
+            total_latency_ms=10, stopped_reason="goal_reached",
+            final_screen_state="[top] OK",
+        )
+
+    monkeypatch.setattr("sunny.core.execution.agent_loop.run_agent_loop", fake_loop)
+    reg = PluginRegistry()
+    plan = _plan(
+        [Step(step_id="loop1", plugin="agent_loop", action="run",
+              params={"goal": "abrir factorio", "max_steps": 5},
+              timeout_sec=120, depends_on=[])],
+        intent="agent_loop",
+    )
+    r = execute_plan(plan, reg)
+    assert r.success is True
+    assert r.steps[0].plugin == "agent_loop"
+    assert r.steps[0].data["goal"] == "abrir factorio"
+    assert captured["goal"] == "abrir factorio"
+    assert captured["max_steps"] == 5

@@ -15,7 +15,7 @@ from sunny.core.logging.logger import get_logger
 log = get_logger("sunny.brain.ollama_client")
 
 # Constantes (exportables)
-DEFAULT_MODEL: str = "llama3.1:8b-instruct-q5_K_M"
+DEFAULT_MODEL: str = "qwen2.5:14b-instruct-q4_K_M"
 DEFAULT_VISION_MODEL: str = "llava"
 DEFAULT_TEMPERATURE: float = 0.2
 DEFAULT_TIMEOUT_SEC: int = 120
@@ -64,6 +64,7 @@ def call_llm(
     temperature: float = DEFAULT_TEMPERATURE,
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
     json_mode: bool = True,
+    num_ctx: int = DEFAULT_NUM_CTX,
 ) -> Tuple[str, LLMCallStats]:
     """Realiza una llamada al LLM vía Ollama."""
     messages = [
@@ -76,7 +77,7 @@ def call_llm(
     kwargs = {
         "model": model,
         "messages": messages,
-        "options": {"temperature": temperature, "num_predict": 2048, "num_ctx": DEFAULT_NUM_CTX},
+        "options": {"temperature": temperature, "num_predict": 2048, "num_ctx": num_ctx},
     }
     if json_mode:
         kwargs["format"] = "json"
@@ -113,12 +114,12 @@ def call_llm(
         json_mode=json_mode,
     )
 
-    if stats.tokens_in >= int(DEFAULT_NUM_CTX * CONTEXT_WARN_RATIO):
+    if stats.tokens_in >= int(num_ctx * CONTEXT_WARN_RATIO):
         log.warning(
             "context_limit_approaching",
             tokens_in=stats.tokens_in,
-            num_ctx=DEFAULT_NUM_CTX,
-            usage_pct=round(stats.tokens_in / DEFAULT_NUM_CTX * 100, 1),
+            num_ctx=num_ctx,
+            usage_pct=round(stats.tokens_in / num_ctx * 100, 1),
         )
 
     return content, stats
@@ -218,6 +219,7 @@ def call_llm_validated(
     model: str = DEFAULT_MODEL,
     temperature: float = DEFAULT_TEMPERATURE,
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
+    num_ctx: int = DEFAULT_NUM_CTX,
 ) -> Tuple[T, LLMCallStats]:
     """Llama al LLM y valida contra un schema Pydantic."""
     attempt = 0
@@ -232,6 +234,7 @@ def call_llm_validated(
             temperature=temperature,
             timeout_sec=timeout_sec,
             json_mode=True,
+            num_ctx=num_ctx,
         )
 
         last_raw = raw
