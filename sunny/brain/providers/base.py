@@ -42,6 +42,24 @@ class BrainProvider(ABC):
         ...
 
     @abstractmethod
+    def call_text(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        temperature: float = 0.5,
+        timeout_sec: int = 120,
+        num_ctx: int = 16384,
+    ) -> Tuple[str, LLMCallStats]:
+        """Llama al LLM en modo texto plano, sin schema ni JSON mode.
+
+        Usado por el flujo de conversación, donde la respuesta del modelo
+        es texto libre destinado al usuario directamente. ``num_ctx`` lo
+        respetan backends locales (Ollama) y lo ignoran cloud (Groq,
+        Cerebras) que no exponen ese parámetro.
+        """
+        ...
+
+    @abstractmethod
     def health_check(self) -> bool:
         """Devuelve True si el backend está disponible y operativo."""
         ...

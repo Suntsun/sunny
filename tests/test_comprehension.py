@@ -69,19 +69,24 @@ def test_comprehend_returns_validated_result(monkeypatch):
     assert stats.retries_used == 0
 
 
-def test_comprehend_uses_v1_system_prompt(monkeypatch):
+def test_comprehend_uses_comprehension_v1_system_prompt(monkeypatch):
+    """La comprensión debe usar el prompt ligero comprehension_v1, no v3."""
     captured = {}
 
-    def fake_chat(self, **kwargs):
-        captured.update(kwargs)
-        return _ok_response()
+    def fake_loader(version="v3"):
+        captured["version"] = version
+        return "stub-comprehension-prompt"
 
-    monkeypatch.setattr("ollama.Client.chat", fake_chat)
+    monkeypatch.setattr(
+        "sunny.core.orchestrator.comprehension.load_system_prompt",
+        fake_loader,
+    )
+    monkeypatch.setattr("ollama.Client.chat", lambda self, **k: _ok_response())
     monkeypatch.setattr("sunny.core.session.manager.get_context", lambda: [])
 
     comprehend("hola")
-    assert "# ROL Y MISIÓN" in captured["messages"][0]["content"]
-    assert "FASE COMPRENSIÓN" in captured["messages"][0]["content"]
+    assert captured["version"] == "comprehension_v1"
+    assert captured["version"] != "v3"
 
 
 def test_comprehend_user_prompt_has_phase_tag(monkeypatch):

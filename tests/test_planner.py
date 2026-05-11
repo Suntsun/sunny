@@ -2,6 +2,15 @@ import json
 import pytest
 from sunny.core.models.plan import ComprehensionResult
 from sunny.core.orchestrator import planner
+
+
+@pytest.fixture(autouse=True)
+def _force_planning_to_ollama(monkeypatch):
+    """Estos tests mockean ollama.Client.chat. Forzamos m2 a ollama para
+    que el fake de Ollama siga siendo el backend efectivo del planner."""
+    monkeypatch.setenv("SUNNY_M2_PROVIDER", "ollama")
+
+
 def _ok_plan_response():
     return {
         "message": {"content": json.dumps({

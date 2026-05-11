@@ -44,6 +44,27 @@ def _build_registry() -> PluginRegistry:
 
 AUTO_CONFIRM_THRESHOLD = 0.9
 
+_TRANSIENT_HINT_SUBSTRINGS = (
+    "rate_limit", "rate limit", "tokens per", "tpm", "tpd",
+    "429", "413", "context_length", "context length", "context window",
+    "cuda", "out of memory", "oom", "shared object initialization",
+    "service unavailable", "503", "502", "overloaded",
+)
+
+
+def _hint_fallback_if_transient(exc: Exception) -> None:
+    """Sugerencia al usuario cuando un error sería evitable con fallback."""
+    haystack = str(exc).lower()
+    if not any(s in haystack for s in _TRANSIENT_HINT_SUBSTRINGS):
+        return
+    console.print(
+        "[dim]Tip: este error es transitorio (cuota/contexto/CUDA). Configura "
+        "una cadena de fallback con\n"
+        "  $env:SUNNY_M2_FALLBACK_PROVIDER = \"<proveedor>\" ; "
+        "$env:SUNNY_M2_FALLBACK_MODEL = \"<modelo>\"\n"
+        "para que Sunny salte automáticamente al siguiente proveedor.[/dim]"
+    )
+
 
 def _process_one(user_input: str, registry: PluginRegistry, yes: bool = False) -> None:
     """Procesa un turno completo."""
@@ -74,6 +95,14 @@ def _process_one(user_input: str, registry: PluginRegistry, yes: bool = False) -
             session.append_turn(user_input, text)
             return
 
+        if plan_result.needs_clarification or not plan_result.steps:
+            _reporter.report_no_plan(plan_result, user_input)
+            session.append_turn(
+                user_input,
+                f"sin plan ejecutable (intent={plan_result.intent})",
+            )
+            return
+
         validation = _validator.validate_plan(plan_result)
         if not validation.valid:
             _reporter.report_validation_errors(validation.errors)
@@ -93,6 +122,7 @@ def _process_one(user_input: str, registry: PluginRegistry, yes: bool = False) -
 
     except LLMError as e:
         console.print(f"[red]Error LLM: {e}[/red]")
+        _hint_fallback_if_transient(e)
         log.error("cli_llm_error", error_type=type(e).__name__, error_msg=str(e))
     except Exception as e:
         console.print(f"[red]Error inesperado: {e}[/red]")

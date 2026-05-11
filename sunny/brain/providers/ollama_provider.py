@@ -46,5 +46,23 @@ class OllamaProvider(BrainProvider):
             num_ctx=num_ctx,
         )
 
+    def call_text(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        temperature: float = 0.5,
+        timeout_sec: int = ollama_client.DEFAULT_TIMEOUT_SEC,
+        num_ctx: int = ollama_client.DEFAULT_NUM_CTX,
+    ) -> Tuple[str, LLMCallStats]:
+        return ollama_client.call_llm(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            model=self._model,
+            temperature=temperature,
+            timeout_sec=timeout_sec,
+            json_mode=False,
+            num_ctx=num_ctx,
+        )
+
     def health_check(self) -> bool:
         return ollama_client.health_check(model=self._model)

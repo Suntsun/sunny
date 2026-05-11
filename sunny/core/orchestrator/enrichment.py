@@ -18,6 +18,9 @@ ENRICHMENT_SYSTEM_PROMPT = (
     "Cuando recibas una tarea sobre una aplicación, responde con 3-5 pasos de UI concretos "
     "y accionables. Solo pasos de interacción: clics, texto a escribir, atajos de teclado. "
     "Sin explicaciones adicionales. Si hay varias formas, elige la más directa. "
+    "IMPORTANTE: asume que la aplicación ya está abierta y tiene el foco. "
+    "NO incluyas pasos de apertura, inicio ni espera de carga de la aplicación. "
+    "Los pasos deben comenzar desde dentro de la aplicación ya activa. "
     "Máximo 80 palabras."
 )
 

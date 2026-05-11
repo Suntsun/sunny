@@ -297,3 +297,117 @@ def test_v1_intent_consistency_in_examples():
             pairs += 1
 
     assert pairs >= 7, f"Esperaba >= 7 pares válidos, encontrados {pairs}"
+
+
+# ---------------------------------------------------------------------------
+# Tests para system_comprehension_v1 (prompt ligero solo de comprensión)
+# ---------------------------------------------------------------------------
+
+
+def test_load_system_prompt_comprehension_v1_loads():
+    c = loader.load_system_prompt("comprehension_v1")
+    assert isinstance(c, str)
+    assert len(c) > 200
+
+
+def test_comprehension_v1_lists_all_seven_intents():
+    c = loader.load_system_prompt("comprehension_v1")
+    for i in ["os_control", "files", "vision", "gui", "ai_bridge", "conversation", "agent_loop"]:
+        assert i in c
+
+
+def test_comprehension_v1_contains_role_and_schema_sections():
+    c = loader.load_system_prompt("comprehension_v1")
+    assert "# ROL Y MISIÓN" in c
+    assert "FASE COMPRENSIÓN" in c
+    assert "CALIBRACIÓN DE CONFIDENCE" in c
+
+
+def test_comprehension_v1_excludes_planning_artifacts():
+    """El prompt ligero NO debe arrastrar el catálogo de plugins ni el esquema de planificación."""
+    c = loader.load_system_prompt("comprehension_v1")
+    assert "FASE PLANIFICACIÓN" not in c
+    assert "CATÁLOGO DE PLUGINS" not in c
+    assert "step_id" not in c
+    assert "requires_confirmation" not in c
+
+
+def test_comprehension_v1_few_shot_jsons_parse_to_comprehension_result():
+    c = loader.load_system_prompt("comprehension_v1")
+    assert "# EJEMPLOS FEW-SHOT" in c
+    few_shot = c.split("# EJEMPLOS FEW-SHOT", 1)[1]
+
+    json_lines = re.findall(r'^\{".*\}$', few_shot, re.MULTILINE)
+    assert len(json_lines) >= 8, (
+        f"Esperaba >= 8 ejemplos few-shot de comprensión, encontrados {len(json_lines)}"
+    )
+
+    for j in json_lines:
+        ComprehensionResult.model_validate_json(j)
+
+
+def test_comprehension_v1_under_token_budget():
+    """El prompt debe ser ligero — objetivo de diseño ≤ 1500 tokens (~6000 chars como cota)."""
+    c = loader.load_system_prompt("comprehension_v1")
+    assert len(c) < 6000, f"Prompt creció a {len(c)} chars, supera el presupuesto"
+
+
+def test_comprehension_v1_forbids_markdown_fences():
+    c = loader.load_system_prompt("comprehension_v1")
+    assert "Prohibido" in c and "markdown" in c.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests para system_agent_loop_v1 (prompt del bucle agéntico de visión)
+# ---------------------------------------------------------------------------
+
+
+def test_load_system_prompt_agent_loop_v1_loads():
+    c = loader.load_system_prompt("agent_loop_v1")
+    assert isinstance(c, str)
+    assert len(c) > 200
+
+
+def test_agent_loop_v1_keeps_known_actions():
+    c = loader.load_system_prompt("agent_loop_v1")
+    for a in ["click_on_text", "type_text", "press_key", "wait_for_screen_text", "get_screen_state"]:
+        assert a in c
+
+
+def test_agent_loop_v1_literal_naming_rule():
+    """Regla 7: nombres y textos del OBJETIVO se usan literalmente, sin prefijos como @."""
+    c = loader.load_system_prompt("agent_loop_v1")
+    assert "literalmente" in c
+    assert "prefijos" in c
+    assert "@" in c
+
+
+def test_agent_loop_v1_goal_reached_on_action_sequence():
+    """Regla 8: si el HISTORIAL contiene la secuencia que completa el OBJETIVO, declarar goal_reached."""
+    c = loader.load_system_prompt("agent_loop_v1")
+    assert "completa el OBJETIVO" in c
+    assert "siguiente iteración" in c
+    assert "goal_reached: true" in c
+
+
+def test_agent_loop_v1_single_type_text_for_long_messages():
+    """Regla 9: mensajes largos deben escribirse en un único type_text, no fragmentados."""
+    c = loader.load_system_prompt("agent_loop_v1")
+    assert "único type_text" in c or "único" in c
+    assert "fragmentes" in c
+
+
+def test_agent_loop_v1_find_on_screen_no_repeat_rule():
+    """Regla 10: find_on_screen no debe repetirse si no encuentra el texto — navegar con alternativas."""
+    c = loader.load_system_prompt("agent_loop_v1")
+    assert "find_on_screen" in c
+    assert "get_screen_state" in c
+    # Debe mencionar Ctrl+K como atajo de Discord
+    assert "Ctrl+K" in c
+
+
+def test_agent_loop_v1_loop_break_rule_strictness():
+    """Regla 4 mejorada: tras 2 acciones iguales sin progreso, cambiar de estrategia."""
+    c = loader.load_system_prompt("agent_loop_v1")
+    assert "2 o más" in c
+    assert "cambia de estrategia" in c

@@ -3,6 +3,7 @@ import json
 import pytest
 
 from sunny.brain.ollama_client import (
+    DEFAULT_MODEL,
     call_llm,
     call_llm_validated,
     call_llm_vision,
@@ -246,7 +247,7 @@ def test_call_llm_validated_extracts_json_object(monkeypatch):
 
 
 def test_health_check_model_present(monkeypatch):
-    monkeypatch.setattr("ollama.list", lambda: {"models": [{"name": "llama3.1:8b-instruct-q5_K_M"}]})
+    monkeypatch.setattr("ollama.list", lambda: {"models": [{"name": DEFAULT_MODEL}]})
     assert health_check()
 
 

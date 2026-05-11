@@ -7,13 +7,14 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from sunny.brain.factory import BrainRole, get_provider_for_role
 from sunny.brain.ollama_client import (
     LLMError,
     LLMTimeoutError,
     LLMValidationError,
-    call_llm_validated,
 )
 from sunny.core.execution.engine import StepExecutionResult, _execute_step
+from sunny.core.execution.ocr_summarizer import summarize_screen_state
 from sunny.core.logging.logger import get_logger
 from sunny.core.models.plan import Step
 from sunny.core.plugins.registry import PluginRegistry
@@ -136,6 +137,7 @@ def run_agent_loop(
     max_steps = min(max_steps, MAX_LOOP_STEPS)
 
     system_prompt = _load_loop_prompt()
+    provider = get_provider_for_role(BrainRole.GUI_AGENT)
     log.info("agent_loop_start", goal=goal, max_steps=max_steps)
 
     steps_executed: List[StepExecutionResult] = []
@@ -153,10 +155,11 @@ def run_agent_loop(
 
         screen_state, screenshot_path = _capture_screen_state(registry, context)
         final_screen = screen_state
-        user_prompt = _build_user_prompt(goal, screen_state, steps_executed)
+        summarized_state = summarize_screen_state(screen_state, goal)
+        user_prompt = _build_user_prompt(goal, summarized_state, steps_executed)
 
         try:
-            decision, _stats = call_llm_validated(
+            decision, _stats = provider.call_validated(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
                 schema=LoopDecision,

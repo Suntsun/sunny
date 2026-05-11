@@ -1,0 +1,83 @@
+================================================================================
+  SUNNY — CONFIGURACIONES RÁPIDAS  (con auto-fallback, mayo 2026)
+================================================================================
+
+── MODO RECOMENDADO — CADENA TRIPLE CON AUTO-FALLBACK ──────────────────────────
+  # Primary: Cerebras (capacidad alta, 1M tokens/día gratis)
+  # Fallback 1: Groq (100k tokens/día gratis, rápido)
+  # Fallback 2: Ollama local 14B (sin internet ni cuota)
+  #
+  # Si el primario falla por rate-limit, contexto, CUDA o conexión,
+  # Sunny salta automáticamente al siguiente.
+
+  $env:CEREBRAS_API_KEY = "..."
+  $env:GROQ_API_KEY     = "gsk_..."
+
+  # M2 — Planning (necesita contexto grande, ~7K en el system prompt v3)
+  $env:SUNNY_M2_PROVIDER          = "cerebras" ; $env:SUNNY_M2_MODEL          = "qwen-3-235b-a22b-instruct-2507"
+  $env:SUNNY_M2_FALLBACK_PROVIDER = "groq"     ; $env:SUNNY_M2_FALLBACK_MODEL = "llama-3.3-70b-versatile"
+  $env:SUNNY_M2_FALLBACK2_PROVIDER= "ollama"   ; $env:SUNNY_M2_FALLBACK2_MODEL= "qwen2.5:14b-instruct-q4_K_M"
+
+  # M3 — GUI Agent (mismo perfil que M2)
+  $env:SUNNY_M3_PROVIDER          = "cerebras" ; $env:SUNNY_M3_MODEL          = "qwen-3-235b-a22b-instruct-2507"
+  $env:SUNNY_M3_FALLBACK_PROVIDER = "groq"     ; $env:SUNNY_M3_FALLBACK_MODEL = "llama-3.3-70b-versatile"
+  $env:SUNNY_M3_FALLBACK2_PROVIDER= "ollama"   ; $env:SUNNY_M3_FALLBACK2_MODEL= "qwen2.5:14b-instruct-q4_K_M"
+
+  # M1 — Comprensión (chico, local)
+  $env:SUNNY_M1_PROVIDER          = "ollama"   ; $env:SUNNY_M1_MODEL          = "qwen2.5:3b"
+  $env:SUNNY_M1_FALLBACK_PROVIDER = "groq"     ; $env:SUNNY_M1_FALLBACK_MODEL = "llama-3.1-8b-instant"
+
+  # M4 — OCR Summarizer (chico, local)
+  $env:SUNNY_M4_PROVIDER          = "ollama"   ; $env:SUNNY_M4_MODEL          = "qwen2.5:3b"
+  $env:SUNNY_M4_FALLBACK_PROVIDER = "groq"     ; $env:SUNNY_M4_FALLBACK_MODEL = "llama-3.1-8b-instant"
+
+  # Avisos:
+  #  - qwen-3-235b-a22b-instruct-2507 se DEPRECA en Cerebras el 27 mayo 2026.
+  #    Cuando desaparezca, mover a:  gpt-oss-120b  (más restrictivo en free)
+  #    o promover Groq llama-3.3-70b-versatile a primary.
+  #  - llama3.1-8b (cerebras/groq) tiene contexto ~8K, NO sirve como primary
+  #    de M2/M3 mientras el system prompt v3 ronde los 7K tokens.
+
+── MODO HÍBRIDO MÍNIMO — solo Groq ──────────────────────────────────────────────
+  $env:GROQ_API_KEY     = "gsk_..."
+  $env:SUNNY_M2_PROVIDER = "groq" ; $env:SUNNY_M2_MODEL = "llama-3.3-70b-versatile"
+  $env:SUNNY_M3_PROVIDER = "groq" ; $env:SUNNY_M3_MODEL = "llama-3.3-70b-versatile"
+  # m1 y m4 quedan en ollama/qwen2.5:3b por defecto
+  # AVISO: free tier groq = 100k tokens/día. Cada plan consume ~8k. → ~12 planes/día.
+
+  # Alternativas Groq producción (TPM generoso):
+  #   openai/gpt-oss-20b   → más rápido (1000 t/s)
+  #   openai/gpt-oss-120b  → más capaz (500 t/s)
+  # EVITAR en free tier:
+  #   qwen/qwen3-32b → preview, TPM 6000 (system prompt v3 ya pide ~8k → 413)
+  #   cerebras llama3.1-8b → contexto 8192 < system prompt v3 (~8.3k)
+
+── MODO 100% LOCAL — sin internet ───────────────────────────────────────────────
+  $env:SUNNY_M1_PROVIDER = "ollama" ; $env:SUNNY_M1_MODEL = "qwen2.5:3b"
+  $env:SUNNY_M2_PROVIDER = "ollama" ; $env:SUNNY_M2_MODEL = "qwen2.5:14b-instruct-q4_K_M"
+  $env:SUNNY_M3_PROVIDER = "ollama" ; $env:SUNNY_M3_MODEL = "qwen2.5:14b-instruct-q4_K_M"
+  $env:SUNNY_M4_PROVIDER = "ollama" ; $env:SUNNY_M4_MODEL = "qwen2.5:3b"
+
+  # AVISO: el 14B carga ~9GB de VRAM. Si la GPU está saturada por otro proceso
+  # o el driver tiene problemas, dará "CUDA error: shared object init failed".
+
+── ARREGLO INMEDIATO PARA AHORA MISMO (Groq TPD agotado, espera 1h) ────────────
+  # Pega esto y ejecuta. Bypasea Groq hasta que se renueve la cuota a medianoche UTC.
+  $env:CEREBRAS_API_KEY  = "csk-..."
+  $env:SUNNY_M2_PROVIDER = "cerebras" ; $env:SUNNY_M2_MODEL = "qwen-3-235b-a22b-instruct-2507"
+  $env:SUNNY_M3_PROVIDER = "cerebras" ; $env:SUNNY_M3_MODEL = "qwen-3-235b-a22b-instruct-2507"
+
+── RESET — volver a defaults del código ─────────────────────────────────────────
+  Remove-Item Env:SUNNY_M1_PROVIDER, Env:SUNNY_M1_MODEL `
+              Env:SUNNY_M2_PROVIDER, Env:SUNNY_M2_MODEL `
+              Env:SUNNY_M3_PROVIDER, Env:SUNNY_M3_MODEL `
+              Env:SUNNY_M4_PROVIDER, Env:SUNNY_M4_MODEL `
+              Env:SUNNY_M1_FALLBACK_PROVIDER, Env:SUNNY_M1_FALLBACK_MODEL `
+              Env:SUNNY_M2_FALLBACK_PROVIDER, Env:SUNNY_M2_FALLBACK_MODEL `
+              Env:SUNNY_M3_FALLBACK_PROVIDER, Env:SUNNY_M3_FALLBACK_MODEL `
+              Env:SUNNY_M4_FALLBACK_PROVIDER, Env:SUNNY_M4_FALLBACK_MODEL `
+              Env:SUNNY_M2_FALLBACK2_PROVIDER, Env:SUNNY_M2_FALLBACK2_MODEL `
+              Env:SUNNY_M3_FALLBACK2_PROVIDER, Env:SUNNY_M3_FALLBACK2_MODEL `
+              -ErrorAction SilentlyContinue
+
+================================================================================

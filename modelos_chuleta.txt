@@ -1,0 +1,138 @@
+================================================================================
+  SUNNY — CHULETA DE MODELOS (mayo 2026)
+================================================================================
+
+Variables de entorno de Sunny:
+  SUNNY_M1_PROVIDER / SUNNY_M1_MODEL   → Comprensión (m1)
+  SUNNY_M2_PROVIDER / SUNNY_M2_MODEL   → Planificación (m2)
+  SUNNY_M3_PROVIDER / SUNNY_M3_MODEL   → Agente visual GUI (m3)
+  SUNNY_M4_PROVIDER / SUNNY_M4_MODEL   → OCR Summarizer (m4)
+  GROQ_API_KEY                         → Activa Groq + capa de enriquecimiento
+  CEREBRAS_API_KEY                     → Activa Cerebras
+
+  Defaults actuales:
+    m1 → ollama / qwen2.5:3b
+    m2 → cerebras / llama3.1-8b
+    m3 → cerebras / llama3.1-8b
+    m4 → ollama / qwen2.5:3b
+
+================================================================================
+  OLLAMA (LOCAL — sin internet, sin cuota)
+================================================================================
+
+  Instalados en este equipo:
+  ┌───────────────────────────────────┬────────┬───────────────────────────────┐
+  │ Modelo (ollama pull ...)          │ Tamaño │ Uso recomendado               │
+  ├───────────────────────────────────┼────────┼───────────────────────────────┤
+  │ qwen2.5:3b                        │ 1.9 GB │ m1 y m4 (rápido, local)       │
+  │ qwen2.5:14b-instruct-q4_K_M       │ 9.0 GB │ m2/m3 fallback local capaz    │
+  │ llama3.1:8b-instruct-q5_K_M       │ 5.7 GB │ fallback general              │
+  └───────────────────────────────────┴────────┴───────────────────────────────┘
+
+  Otros modelos recomendados para descargar:
+  ┌───────────────────────────────────┬────────┬───────────────────────────────┐
+  │ Modelo                            │ Tamaño │ Comentario                    │
+  ├───────────────────────────────────┼────────┼───────────────────────────────┤
+  │ qwen2.5:7b                        │ ~4 GB  │ balance velocidad/calidad     │
+  │ phi4:14b                          │ ~9 GB  │ bueno en razonamiento         │
+  │ gemma3:9b                         │ ~6 GB  │ alternativa Google            │
+  │ mistral:7b                        │ ~4 GB  │ clásico fiable                │
+  └───────────────────────────────────┴────────┴───────────────────────────────┘
+
+  Configurar para Sunny:
+    $env:SUNNY_M2_PROVIDER = "ollama"
+    $env:SUNNY_M2_MODEL    = "qwen2.5:14b-instruct-q4_K_M"
+
+================================================================================
+  GROQ (CLOUD — gratis con límites diarios)
+================================================================================
+
+  Free tier: ~100k tokens/día total. Se renueva cada 24h UTC.
+  JSON mode disponible (response_format json_object). ✓
+
+  Modelos PRODUCCIÓN (estables):
+  ┌────────────────────────────┬────────┬─────────────────────────────────────┐
+  │ Model ID                   │ t/seg  │ Comentario                          │
+  ├────────────────────────────┼────────┼─────────────────────────────────────┤
+  │ llama-3.3-70b-versatile    │  280   │ default actual de Sunny (Groq)      │
+  │ llama-3.1-8b-instant       │  560   │ rápido, barato, menos capaz         │
+  │ openai/gpt-oss-120b        │  500   │ 120B, muy capaz                     │
+  │ openai/gpt-oss-20b         │ 1000   │ 20B, equilibrio velocidad/calidad   │
+  └────────────────────────────┴────────┴─────────────────────────────────────┘
+
+  Modelos PREVIEW (pueden desaparecer sin aviso):
+  ┌──────────────────────────────────────────┬───────┬──────────────────────────┐
+  │ Model ID                                 │ t/seg │ Comentario               │
+  ├──────────────────────────────────────────┼───────┼──────────────────────────┤
+  │ qwen/qwen3-32b                           │  400  │ muy recomendado para m2/3│
+  │ meta-llama/llama-4-scout-17b-16e-instruct│  750  │ Llama 4, MoE 17B activos │
+  └──────────────────────────────────────────┴───────┴──────────────────────────┘
+
+  Configurar para Sunny:
+    $env:GROQ_API_KEY       = "gsk_..."
+    $env:SUNNY_M2_PROVIDER  = "groq"
+    $env:SUNNY_M2_MODEL     = "qwen/qwen3-32b"       ← mejor opción ahora
+    $env:SUNNY_M3_PROVIDER  = "groq"
+    $env:SUNNY_M3_MODEL     = "qwen/qwen3-32b"
+    $env:SUNNY_GROQ_MODEL   = "llama-3.3-70b-versatile"  ← solo para enriquecimiento
+
+================================================================================
+  CEREBRAS (CLOUD — gratis, 1M tokens/día, hardware propio muy rápido)
+================================================================================
+
+  Free tier: 1M tokens/día. Puede saturarse en horas punta (429 queue_exceeded).
+  JSON mode disponible. ✓
+
+  Modelos PRODUCCIÓN:
+  ┌──────────────────────────────────────┬────────┬────────────────────────────┐
+  │ Model ID                             │ t/seg  │ Comentario                 │
+  ├──────────────────────────────────────┼────────┼────────────────────────────┤
+  │ llama3.1-8b                          │ ~2200  │ siempre disponible         │
+  │ gpt-oss-120b                         │ ~3000  │ 120B, restringido en free  │
+  └──────────────────────────────────────┴────────┴────────────────────────────┘
+
+  Modelos PREVIEW (se depreca el 27 mayo 2026):
+  ┌──────────────────────────────────────┬────────┬────────────────────────────┐
+  │ Model ID                             │ t/seg  │ Comentario                 │
+  ├──────────────────────────────────────┼────────┼────────────────────────────┤
+  │ qwen-3-235b-a22b-instruct-2507       │ ~1400  │ 235B MoE (22B activos)     │
+  │ zai-glm-4.7                          │ ~1000  │ 355B, restringido en free  │
+  └──────────────────────────────────────┴────────┴────────────────────────────┘
+
+  Configurar para Sunny:
+    $env:CEREBRAS_API_KEY  = "..."
+    $env:SUNNY_M2_PROVIDER = "cerebras"
+    $env:SUNNY_M2_MODEL    = "llama3.1-8b"    ← único fiable en free tier
+    $env:SUNNY_M3_PROVIDER = "cerebras"
+    $env:SUNNY_M3_MODEL    = "llama3.1-8b"
+
+================================================================================
+  CONFIGURACIONES RECOMENDADAS PARA SUNNY
+================================================================================
+
+  ── MODO 100% LOCAL (sin internet) ──────────────────────────────────────────
+    $env:SUNNY_M1_PROVIDER = "ollama" ; $env:SUNNY_M1_MODEL = "qwen2.5:3b"
+    $env:SUNNY_M2_PROVIDER = "ollama" ; $env:SUNNY_M2_MODEL = "qwen2.5:14b-instruct-q4_K_M"
+    $env:SUNNY_M3_PROVIDER = "ollama" ; $env:SUNNY_M3_MODEL = "qwen2.5:14b-instruct-q4_K_M"
+    $env:SUNNY_M4_PROVIDER = "ollama" ; $env:SUNNY_M4_MODEL = "qwen2.5:3b"
+
+  ── MODO HÍBRIDO RECOMENDADO (Groq para m2/m3) ──────────────────────────────
+    $env:GROQ_API_KEY      = "gsk_..."
+    $env:SUNNY_M2_PROVIDER = "groq"   ; $env:SUNNY_M2_MODEL = "qwen/qwen3-32b"
+    $env:SUNNY_M3_PROVIDER = "groq"   ; $env:SUNNY_M3_MODEL = "qwen/qwen3-32b"
+    # m1 y m4 quedan en ollama/qwen2.5:3b por defecto
+
+  ── MODO CEREBRAS (cuando no esté saturado) ──────────────────────────────────
+    $env:CEREBRAS_API_KEY  = "..."
+    $env:SUNNY_M2_PROVIDER = "cerebras" ; $env:SUNNY_M2_MODEL = "llama3.1-8b"
+    $env:SUNNY_M3_PROVIDER = "cerebras" ; $env:SUNNY_M3_MODEL = "llama3.1-8b"
+
+================================================================================
+  RESUMEN DE LIMITS FREE TIER
+================================================================================
+
+  Groq:     ~100k tokens/día · se renueva a medianoche UTC
+  Cerebras:  ~1M tokens/día  · puede saturarse en horas punta (horas europeas)
+  Ollama:    sin límite       · limitado por la RAM/GPU del equipo
+
+================================================================================

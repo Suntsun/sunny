@@ -207,7 +207,7 @@ def test_plan_calls_enrich_for_agent_loop(monkeypatch):
     monkeypatch.setattr(planner, "enrich", fake_enrich)
     monkeypatch.setattr("sunny.core.session.manager.get_context", lambda: [])
     fake_provider = _FakeProvider(_fake_planv2("agent_loop"))
-    monkeypatch.setattr(planner, "get_brain_provider", lambda: fake_provider)
+    monkeypatch.setattr(planner, "get_provider_for_role", lambda role: fake_provider)
 
     planner.plan("abrir spotify", _comp(intent="agent_loop"))
 
@@ -227,7 +227,7 @@ def test_plan_skips_enrich_for_other_intents(monkeypatch):
     monkeypatch.setattr(planner, "enrich", fake_enrich)
     monkeypatch.setattr("sunny.core.session.manager.get_context", lambda: [])
     fake_provider = _FakeProvider(_fake_planv2("files"))
-    monkeypatch.setattr(planner, "get_brain_provider", lambda: fake_provider)
+    monkeypatch.setattr(planner, "get_provider_for_role", lambda role: fake_provider)
 
     planner.plan("lee notas.txt", _comp(intent="files"))
 

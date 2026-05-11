@@ -53,6 +53,7 @@ def mocked(monkeypatch):
     monkeypatch.setattr(cli._reporter, "report_clarification", lambda c: calls["reports"].append(("clarification", c)))
     monkeypatch.setattr(cli._reporter, "report_user_cancelled", lambda r="...": calls["reports"].append(("cancelled", r)))
     monkeypatch.setattr(cli._reporter, "report_validation_errors", lambda e: calls["reports"].append(("validation_errors", e)))
+    monkeypatch.setattr(cli._reporter, "report_no_plan", lambda p, u: calls["reports"].append(("no_plan", p, u)))
 
     monkeypatch.setattr(cli.session, "append_turn", lambda u, a: calls["session"].append((u, a)))
 
@@ -106,6 +107,25 @@ def test_process_one_user_rejects_plan(mocked):
     state["confirm_plan"] = False
     cli._process_one("x", None)
     assert any(r[0] == "cancelled" for r in calls["reports"])
+
+
+def test_process_one_plan_needs_clarification_reports_no_plan(mocked):
+    state, calls = mocked
+    state["plan"] = (
+        PlanV2(
+            intent="ai_bridge",
+            confidence=0.9,
+            needs_clarification=True,
+            steps=[],
+        ),
+        None,
+    )
+    cli._process_one("escribe a aafturo por discord", None)
+    no_plan = [r for r in calls["reports"] if r[0] == "no_plan"]
+    assert len(no_plan) == 1
+    assert no_plan[0][2] == "escribe a aafturo por discord"
+    assert not any(r[0] == "execution" for r in calls["reports"])
+    assert calls["session"]
 
 
 def test_process_one_conversation_path(mocked):

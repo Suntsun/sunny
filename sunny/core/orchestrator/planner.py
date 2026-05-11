@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import List, Optional, Tuple
 
-from sunny.brain.factory import get_brain_provider
+from sunny.brain.factory import BrainRole, get_provider_for_role
 from sunny.brain.ollama_client import LLMCallStats
 from sunny.core.logging.logger import get_logger
 from sunny.core.models.plan import ComprehensionResult, PlanV2
@@ -80,7 +80,7 @@ def plan(
         context_turns=len(context),
     )
 
-    result, stats = get_brain_provider().call_validated(
+    result, stats = get_provider_for_role(BrainRole.PLANNING).call_validated(
         user_prompt=user_prompt,
         system_prompt=system_prompt,
         schema=PlanV2,

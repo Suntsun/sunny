@@ -355,6 +355,7 @@ def _comp(intent="files"):
 
 # D-01
 def test_plan_os_control_intent(monkeypatch):
+    monkeypatch.setenv("SUNNY_M2_PROVIDER", "ollama")
     monkeypatch.setattr(
         "ollama.Client.chat",
         lambda self, **k: _plan_llm_response(intent="os_control", plugin="os_control", action="list_processes", params={}),
@@ -366,6 +367,7 @@ def test_plan_os_control_intent(monkeypatch):
 
 # D-02
 def test_plan_needs_clarification_returns_empty_steps(monkeypatch):
+    monkeypatch.setenv("SUNNY_M2_PROVIDER", "ollama")
     monkeypatch.setattr(
         "ollama.Client.chat",
         lambda self, **k: _plan_llm_response(needs_clarification=True),
@@ -378,6 +380,7 @@ def test_plan_needs_clarification_returns_empty_steps(monkeypatch):
 
 # D-03
 def test_plan_requires_confirmation_flag(monkeypatch):
+    monkeypatch.setenv("SUNNY_M2_PROVIDER", "ollama")
     monkeypatch.setattr(
         "ollama.Client.chat",
         lambda self, **k: _plan_llm_response(requires_confirmation=True),
@@ -396,6 +399,7 @@ def test_build_planning_prompt_empty_context_no_context_tag():
 
 # D-05
 def test_plan_stats_tokens_populated(monkeypatch):
+    monkeypatch.setenv("SUNNY_M2_PROVIDER", "ollama")
     monkeypatch.setattr(
         "ollama.Client.chat",
         lambda self, **k: _plan_llm_response(),

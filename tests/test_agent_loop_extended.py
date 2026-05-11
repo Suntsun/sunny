@@ -53,6 +53,22 @@ def _decision(plugin="gui", action="click_on_text", params=None, goal_reached=Fa
     )
 
 
+def _patch_provider(monkeypatch, fake_fn):
+    """Inyecta un _FakeProvider que delega call_validated a fake_fn."""
+    class _FakeProvider:
+        def call_validated(self, **kwargs):
+            return fake_fn(**kwargs)
+
+    monkeypatch.setattr(
+        "sunny.core.execution.agent_loop.get_provider_for_role",
+        lambda role: _FakeProvider(),
+    )
+    monkeypatch.setattr(
+        "sunny.core.execution.agent_loop.summarize_screen_state",
+        lambda raw, goal: raw,
+    )
+
+
 def test_run_agent_loop_sends_screen_state_to_llm(monkeypatch):
     captured = {}
 
@@ -60,7 +76,7 @@ def test_run_agent_loop_sends_screen_state_to_llm(monkeypatch):
         captured["user_prompt"] = kwargs.get("user_prompt", "")
         return _decision(goal_reached=True, reason="ok"), _FakeStats()
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", fake)
+    _patch_provider(monkeypatch, fake)
     reg = _registry(screen_text="[top] PLAY SETTINGS QUIT")
     run_agent_loop(goal="abrir factorio", registry=reg, max_steps=2)
     assert "PLAY SETTINGS QUIT" in captured["user_prompt"]
@@ -77,7 +93,7 @@ def test_run_agent_loop_sends_executed_steps_to_llm(monkeypatch):
             return _decision(action="click_on_text", params={"text": "PLAY"}), _FakeStats()
         return _decision(goal_reached=True, reason="ok"), _FakeStats()
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", fake)
+    _patch_provider(monkeypatch, fake)
     run_agent_loop(goal="g", registry=_registry(), max_steps=5)
     assert "HISTORIAL" in captured[1]
     assert "click_on_text" in captured[1]
@@ -91,7 +107,7 @@ def test_agent_loop_system_prompt_contains_goal(monkeypatch):
         captured["system_prompt"] = kwargs.get("system_prompt", "")
         return _decision(goal_reached=True, reason="ok"), _FakeStats()
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", fake)
+    _patch_provider(monkeypatch, fake)
     run_agent_loop(goal="MI_OBJETIVO_UNICO", registry=_registry(), max_steps=2)
     assert "MI_OBJETIVO_UNICO" in captured["user_prompt"]
     sys_lower = captured["system_prompt"].lower()
@@ -104,7 +120,7 @@ def test_agent_loop_handles_llm_timeout_gracefully(monkeypatch):
     def boom(**kwargs):
         raise LLMTimeoutError("timeout")
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", boom)
+    _patch_provider(monkeypatch, boom)
     res = run_agent_loop(goal="g", registry=_registry(), max_steps=3)
     assert res.success is False
     assert res.stopped_reason == "error"
@@ -119,7 +135,7 @@ def test_agent_loop_max_steps_clamped_to_global_limit(monkeypatch):
         state["i"] = i + 1
         return forever[min(i, len(forever) - 1)], _FakeStats()
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", fake)
+    _patch_provider(monkeypatch, fake)
     res = run_agent_loop(goal="g", registry=_registry(), max_steps=999)
     assert len(res.steps_executed) <= MAX_LOOP_STEPS
 
@@ -128,7 +144,7 @@ def test_agent_loop_rejects_disallowed_plugin(monkeypatch):
     def fake(**kwargs):
         return _decision(plugin="files", action="delete", params={"path": "/x"}), _FakeStats()
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", fake)
+    _patch_provider(monkeypatch, fake)
     res = run_agent_loop(goal="g", registry=_registry(), max_steps=3)
     assert res.stopped_reason == "error"
     assert res.success is False

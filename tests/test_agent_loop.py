@@ -69,7 +69,18 @@ def _patch_llm(monkeypatch, decisions: List[LoopDecision]):
             return _decision(goal_reached=True, reason="fin"), _FakeStats()
         return decisions[i], _FakeStats()
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", fake)
+    class _FakeProvider:
+        def call_validated(self, **kwargs):
+            return fake(**kwargs)
+
+    monkeypatch.setattr(
+        "sunny.core.execution.agent_loop.get_provider_for_role",
+        lambda role: _FakeProvider(),
+    )
+    monkeypatch.setattr(
+        "sunny.core.execution.agent_loop.summarize_screen_state",
+        lambda raw, goal: raw,
+    )
 
 
 def test_run_agent_loop_reaches_goal_in_one_step(monkeypatch):
@@ -106,10 +117,18 @@ def test_run_agent_loop_stops_at_max_steps(monkeypatch):
 def test_run_agent_loop_stops_on_error(monkeypatch):
     from sunny.brain.ollama_client import LLMError
 
-    def boom(**kwargs):
-        raise LLMError("modelo caído")
+    class _BoomProvider:
+        def call_validated(self, **kwargs):
+            raise LLMError("modelo caído")
 
-    monkeypatch.setattr("sunny.core.execution.agent_loop.call_llm_validated", boom)
+    monkeypatch.setattr(
+        "sunny.core.execution.agent_loop.get_provider_for_role",
+        lambda role: _BoomProvider(),
+    )
+    monkeypatch.setattr(
+        "sunny.core.execution.agent_loop.summarize_screen_state",
+        lambda raw, goal: raw,
+    )
     res = run_agent_loop(goal="x", registry=_registry(), max_steps=3)
     assert res.stopped_reason == "error"
     assert res.success is False

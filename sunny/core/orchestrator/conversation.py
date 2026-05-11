@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import List, Optional, Tuple
 
-from sunny.brain.ollama_client import call_llm, LLMCallStats
+from sunny.brain.factory import BrainRole, get_provider_for_role
+from sunny.brain.ollama_client import LLMCallStats
 from sunny.core.logging.logger import get_logger
 from sunny.core.prompts.loader import load_system_prompt
 from sunny.core.session import manager as session
@@ -42,11 +43,11 @@ def converse(user_input: str) -> Tuple[str, LLMCallStats]:
         context_turns=len(context),
     )
 
-    response, stats = call_llm(
+    provider = get_provider_for_role(BrainRole.COMPREHENSION)
+    response, stats = provider.call_text(
         user_prompt=user_prompt,
         system_prompt=system_prompt,
         temperature=CONVERSATION_TEMPERATURE,
-        json_mode=False,
     )
 
     log.info(

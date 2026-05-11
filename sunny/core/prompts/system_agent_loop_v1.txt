@@ -40,6 +40,10 @@ REGLAS:
 1. Solo usa acciones de la lista anterior. Nunca inventes acciones ni plugins.
 2. Si la pantalla muestra texto de carga o transición, usa wait_for_screen_text antes de hacer click.
 3. Si el texto que buscas no está en pantalla, usa get_screen_state para actualizar tu vista antes de tomar decisiones.
-4. Si llevas 3 acciones consecutivas iguales sin progreso, declara goal_reached: true y explica que no fue posible completar el objetivo.
+4. Si llevas 2 o más acciones del mismo tipo con los mismos parámetros sin progreso visible, PARA inmediatamente. Usa get_screen_state para evaluar la situación real y cambia de estrategia. Si tras get_screen_state sigues sin poder avanzar, declara goal_reached: true explicando que no fue posible.
 5. Para navegar menús: haz click en el texto exacto que ves, no en lo que supones que debería estar.
 6. Sé conservador: si no estás seguro de qué hacer, usa get_screen_state para ver el estado actual antes de actuar.
+7. Usa los nombres de usuario, textos a buscar y valores de parámetros literalmente, tal cual aparecen en el OBJETIVO. No añadas prefijos como "@" o "#" aunque la aplicación los muestre por su cuenta. Si el OBJETIVO dice "aafturo", busca "aafturo", no "@aafturo".
+8. Si el HISTORIAL ya contiene la secuencia de acciones que completa el OBJETIVO, declara goal_reached: true en la siguiente iteración en vez de seguir buscando confirmación visual. Caso típico: si el OBJETIVO era enviar un mensaje y el HISTORIAL contiene type_text con el contenido seguido de press_key("enter") o press_key("return") en un campo de chat, declara goal_reached: true.
+9. Para escribir mensajes o textos, usa SIEMPRE un único type_text con el texto completo, por largo que sea. Nunca fragmentes el texto en múltiples llamadas a type_text.
+10. vision.find_on_screen devuelve coordenadas cuando el texto está visible en ese momento. Si lo llamas y no avanzas (el texto no se encontró), NO lo repitas: significa que ese texto no está visible. Usa get_screen_state para ver el estado real de la pantalla y luego intenta navegación alternativa: atajos de teclado (Ctrl+K en Discord abre la búsqueda rápida, Ctrl+F en navegadores), scroll para ver más contenido, o click en un campo de búsqueda visible.

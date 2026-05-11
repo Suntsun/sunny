@@ -2,7 +2,7 @@
 
 > Asistente de automatización de escritorio con IA para Windows 11 — 100% local, sin datos en la nube.
 
-![Tests](https://img.shields.io/badge/tests-612%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
+![Tests](https://img.shields.io/badge/tests-656%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
 
 ---
 
@@ -10,9 +10,9 @@
 
 Sunny traduce órdenes en lenguaje natural a acciones concretas sobre el sistema operativo. El usuario escribe en consola lo que quiere hacer — mover un archivo, buscar documentos vacíos, abrir una aplicación, consultar procesos — y Sunny lo interpreta, planifica y ejecuta paso a paso, pidiendo confirmación antes de cualquier operación destructiva.
 
-El cerebro del sistema es un LLM que corre **completamente en local** mediante [Ollama](https://ollama.com/). Ningún dato abandona el equipo. El modelo por defecto es `llama3.1:8b-instruct-q5_K_M`, elegido por su equilibrio entre velocidad y calidad en la generación de JSON estructurado.
+El cerebro del sistema es un LLM que corre **completamente en local** mediante [Ollama](https://ollama.com/). Ningún dato abandona el equipo. El modelo local por defecto es `qwen2.5:14b-instruct-q4_K_M`, elegido por su calidad en razonamiento y generación de JSON estructurado. Como alternativa cloud está disponible Groq (`llama-3.3-70b-versatile`).
 
-El proyecto está en **alpha funcional**: el flujo completo opera sin errores, hay 612 tests passing (incluyendo 106 smoke tests de pipeline, 31 tests de la abstracción `BrainProvider` y 9 tests de la capa de enriquecimiento) y los 5 plugins principales están implementados, más el motor de bucle agente visual. No es software de producción; es una herramienta personal en desarrollo activo.
+El proyecto está en **alpha funcional**: el flujo completo opera sin errores, hay 656 tests passing (incluyendo 106 smoke tests de pipeline, 31 tests de la abstracción `BrainProvider`, 13 tests de `CerebrasProvider`, 10 tests del sistema de roles minibrains, 8 tests del OCR summarizer, 9 tests de la capa de enriquecimiento y 6 tests de prompts del agente visual) y los 5 plugins principales están implementados, más el motor de bucle agente visual con arquitectura multimodelo. No es software de producción; es una herramienta personal en desarrollo activo.
 
 ---
 
@@ -50,7 +50,9 @@ Total: 12 ms — 1 ok / 0 fallos / 0 omitidos
 - Windows 11
 - Python 3.14
 - [Ollama](https://ollama.com/) instalado y en ejecución local
-- Modelo descargado: `ollama pull llama3.1:8b-instruct-q5_K_M`
+- Modelos descargados:
+  - `ollama pull qwen2.5:14b-instruct-q4_K_M` — fallback local general
+  - `ollama pull qwen2.5:3b` — modelo local rápido para los roles m1 (Comprensión) y m4 (OCR Summarizer) de la arquitectura minibrains
 - [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) — requerido para `vision.describe_screen`, `vision.analyze_screen` y `vision.read_screen_text`
 
 ---
@@ -73,6 +75,12 @@ Para activar el provider Groq como cerebro alternativo, instalar el extra:
 pip install -e .[groq]
 ```
 
+Para activar el provider Cerebras (cloud, API OpenAI-compatible, usado por defecto en los roles m2 y m3 de la arquitectura minibrains):
+
+```powershell
+pip install -e .[cerebras]
+```
+
 ---
 
 ## Configuración
@@ -81,9 +89,24 @@ Sunny lee variables de entorno en arranque para seleccionar el cerebro y otros a
 
 | Variable | Default | Descripción |
 |---|---|---|
-| `SUNNY_BRAIN_PROVIDER` | `ollama` | Provider del LLM del cerebro. Valores: `ollama` (local) o `groq` (cloud). |
-| `GROQ_API_KEY` | — | API key de Groq. **Obligatoria** si `SUNNY_BRAIN_PROVIDER=groq`. También activa la capa de enriquecimiento (guía de UI para `agent_loop`) si está presente, independientemente del provider del cerebro. |
-| `SUNNY_GROQ_MODEL` | `llama-3.3-70b-versatile` | Modelo de Groq usado por el provider del cerebro y por la capa de enriquecimiento. |
+| `SUNNY_BRAIN_PROVIDER` | `ollama` | Provider del LLM del cerebro (legacy, solo para `get_brain_provider()` y retrocompat). Valores: `ollama`, `groq`, `cerebras`. |
+| `GROQ_API_KEY` | — | API key de Groq. **Obligatoria** si se usa `groq` como provider. También activa la capa de enriquecimiento (guía de UI para `agent_loop`) si está presente. |
+| `SUNNY_GROQ_MODEL` | `llama-3.3-70b-versatile` | Modelo de Groq usado por el provider y por la capa de enriquecimiento. |
+| `CEREBRAS_API_KEY` | — | API key de Cerebras. **Obligatoria** si algún rol usa `cerebras`. |
+| `SUNNY_CEREBRAS_MODEL` | `gpt-oss-120b` | Modelo de Cerebras usado por defecto si un rol selecciona `cerebras` sin `SUNNY_M{n}_MODEL`. Modelos disponibles: `gpt-oss-120b` (120B, producción), `llama3.1-8b` (8B, producción). |
+
+#### Arquitectura multimodelo — minibrains
+
+Cada rol cognitivo del pipeline se resuelve a un provider y modelo independientes mediante las variables `SUNNY_M{1..4}_PROVIDER` y `SUNNY_M{1..4}_MODEL`. Los defaults reparten carga entre local (rápido) y cloud (capaz):
+
+| Rol | Código | Provider default | Modelo default | Variables override |
+|---|---|---|---|---|
+| m1 Clasificador | `COMPREHENSION` | `ollama` | `qwen2.5:3b` | `SUNNY_M1_PROVIDER` / `SUNNY_M1_MODEL` |
+| m2 Planificador | `PLANNING` | `cerebras` | `gpt-oss-120b` | `SUNNY_M2_PROVIDER` / `SUNNY_M2_MODEL` |
+| m3 Agente visual | `GUI_AGENT` | `cerebras` | `gpt-oss-120b` | `SUNNY_M3_PROVIDER` / `SUNNY_M3_MODEL` |
+| m4 OCR Summarizer | `OCR_SUMMARIZER` | `ollama` | `qwen2.5:3b` | `SUNNY_M4_PROVIDER` / `SUNNY_M4_MODEL` |
+
+El código (no un LLM) orquesta qué modelo resuelve cada fase. Cloud nunca controla el equipo directamente: razona y devuelve JSON, el código local ejecuta las acciones. Esto reparte la capacidad cognitiva efectiva por token entre modelos pequeños/locales para tareas rápidas (clasificación, limpieza de OCR) y modelos grandes/cloud para razonamiento complejo (planificación, decisión visual).
 
 El comportamiento por defecto (sin variables) es idéntico al de versiones previas: 100% local vía Ollama. Para usar Groq:
 
@@ -94,6 +117,18 @@ sunny --new-session "lista los archivos de mi escritorio"
 ```
 
 > Aviso: con `SUNNY_BRAIN_PROVIDER=groq` los prompts del usuario salen del equipo hacia la API de Groq. Solo activarlo si esa concesión es aceptable para el caso de uso.
+
+### System prompts por fase
+
+Sunny usa un prompt distinto en cada fase del pipeline para mantener el coste por llamada bajo, especialmente con providers cloud que tienen cuotas diarias estrictas (p.ej. el free tier de Groq con 100k tokens/día).
+
+| Fase | Prompt | Propósito |
+|---|---|---|
+| Comprensión | `system_comprehension_v1.txt` | Prompt ligero (~5.9 KB / ~1500 tokens). Solo contiene rol, intents, esquema de `ComprehensionResult`, calibración de confidence, regla de seguridad resumida y few-shots de comprensión. No incluye catálogo de plugins ni esquema de planificación. |
+| Planificación | `system_v3.txt` | Prompt completo con catálogo de plugins, parámetros de cada acción, reglas de confirmación y few-shots completos (comprensión + plan). |
+| Agente visual | `system_agent_loop_v1.txt` | Prompt interno usado en cada iteración del bucle agente. |
+
+Esta separación reduce de forma significativa los tokens consumidos por la fase de comprensión, que es la más frecuente en el pipeline.
 
 ---
 
@@ -149,14 +184,17 @@ sunny/
 ├── cli.py                     # Entrypoint Typer
 ├── brain/
 │   ├── ollama_client.py       # Cliente Ollama — llama3.1, num_ctx=16384
-│   ├── factory.py             # get_brain_provider() lee SUNNY_BRAIN_PROVIDER
+│   ├── factory.py             # get_brain_provider() (legacy) + BrainRole / get_provider_for_role (minibrains)
 │   └── providers/
 │       ├── base.py            # BrainProvider (ABC)
-│       ├── ollama_provider.py # Wrapper sobre ollama_client (default)
-│       └── groq_provider.py   # Provider Groq (cloud, OpenAI-compatible)
+│       ├── ollama_provider.py # Wrapper sobre ollama_client (default local)
+│       ├── groq_provider.py   # Provider Groq (cloud, OpenAI-compatible)
+│       └── cerebras_provider.py # Provider Cerebras (cloud, OpenAI SDK + base_url custom)
 ├── core/
 │   ├── execution/
-│   │   └── engine.py          # Motor de ejecución por steps con timeout y threading
+│   │   ├── engine.py          # Motor de ejecución por steps con timeout y threading
+│   │   ├── agent_loop.py      # Bucle agente visual (usa rol GUI_AGENT + OCR Summarizer)
+│   │   └── ocr_summarizer.py  # m4: estructura el OCR crudo antes de cada iteración (fail-safe)
 │   ├── logging/
 │   │   └── logger.py          # structlog + stdlib; JSON a fichero, consola con --verbose
 │   ├── memory/
@@ -172,10 +210,12 @@ sunny/
 │   │   ├── base.py            # PluginBase + PluginResult
 │   │   └── registry.py        # Registro de plugins
 │   ├── prompts/
-│   │   ├── system_v1.txt           # System prompt original (no editar)
-│   │   ├── system_v2.txt           # v2 — describe_screen y analyze_screen (no editar)
-│   │   ├── system_v3.txt           # System prompt activo — agent_loop, get_screen_state, wait_for_screen_text
-│   │   └── system_agent_loop_v1.txt # Prompt interno del agente visual (iteraciones del bucle)
+│   │   ├── system_v1.txt                  # System prompt original (no editar)
+│   │   ├── system_v2.txt                  # v2 — describe_screen y analyze_screen (no editar)
+│   │   ├── system_v3.txt                  # System prompt completo — usado por planificación
+│   │   ├── system_comprehension_v1.txt    # Prompt ligero solo para la fase de comprensión
+│   │   ├── system_agent_loop_v1.txt       # Prompt interno del agente visual (iteraciones del bucle)
+│   │   └── system_ocr_summarizer_v1.txt   # Prompt del rol m4 (extracción estructurada de pantalla)
 │   └── session/
 │       └── manager.py         # Gestión de sesiones, contexto de 3 turnos
 └── modules/
@@ -339,7 +379,7 @@ El planner añade la guía en el bloque `[GUÍA PREVIA]` antes de `[COMPRENSIÓN
 - Los planes con más de 5 pasos también requieren confirmación, independientemente del tipo de acción.
 - El validador rechaza cualquier plugin o acción que no esté en el catálogo registrado.
 - La eliminación de archivos siempre usa la papelera de reciclaje; nunca se borra de forma permanente.
-- El LLM corre en local vía Ollama: ningún dato del usuario abandona el equipo.
+- Por defecto (sin variables de entorno) el LLM corre en local vía Ollama: ningún dato abandona el equipo. Los roles m2 y m3 usan Cerebras por defecto (cloud); se pueden redirigir a Ollama con `SUNNY_M2_PROVIDER=ollama` y `SUNNY_M3_PROVIDER=ollama` para modo 100% local.
 - El stdin se drena antes de cada confirmación para evitar que comandos pegados en el REPL contaminen los prompts interactivos.
 
 ---
@@ -347,15 +387,17 @@ El planner añade la guía en el bloque `[GUÍA PREVIA]` antes de `[COMPRENSIÓN
 ## Tests
 
 ```powershell
-pytest --tb=short -q      # 612 tests, ~37 s
+pytest --tb=short -q      # 656 tests passing, ~30 s
 ```
 
 ```
 tests/
 ├── brain/
 │   ├── test_factory.py            # Selección de provider vía SUNNY_BRAIN_PROVIDER (10 tests)
+│   ├── test_factory_roles.py      # BrainRole + get_provider_for_role, defaults y overrides (10 tests)
 │   ├── test_ollama_provider.py    # Delegación a ollama_client (8 tests)
-│   └── test_groq_provider.py      # JSON mode, retries con hint, health_check (13 tests)
+│   ├── test_groq_provider.py      # JSON mode, retries con hint, health_check (13 tests)
+│   └── test_cerebras_provider.py  # Igual que Groq pero con Cerebras SDK (13 tests)
 ├── modules/
 │   ├── test_files.py              # Plugin files
 │   ├── test_os_control.py         # Plugin os_control
@@ -370,7 +412,8 @@ tests/
 ├── test_memory.py                 # Historial SQLite
 ├── test_session.py                # Gestión de sesiones
 ├── test_cli.py                    # CLI end-to-end (mocks)
-├── test_prompts.py                # system_v1/v2/v3 + agent_loop prompt
+├── test_ocr_summarizer.py         # m4: formato de salida, fail-safe, propagación de goal/ocr (8 tests)
+├── test_prompts.py                # system_v1/v2/v3 + agent_loop prompt + reglas (6 tests)
 └── test_smoke_100.py              # 106 smoke tests de pipeline completo
 ```
 
@@ -409,6 +452,10 @@ Los DEPs resueltos se mantienen como referencia histórica.
 | DEP-29 | Política de retención de screenshots con límite configurable y limpieza automática | Vision | Baja | Abierto |
 | DEP-30 | Abstracción `BrainProvider` con factory y backends Ollama/Groq vía `SUNNY_BRAIN_PROVIDER` | Brain | Alta | ✅ Resuelto |
 | DEP-31 | Capa de enriquecimiento opcional: consulta Groq por pasos de UI antes de planificar `agent_loop`, fail-safe (nunca bloquea el pipeline) | Orchestrator | Alta | ✅ Resuelto |
+| DEP-32 | `test_health_check_model_present` falla en aislamiento: el monkeypatch parchea `ollama.list` pero `health_check()` puede estar usando `Client().list()` internamente, ignorando el patch | Brain / Tests | Baja | Abierto |
+| DEP-33 | Suite de tests asume `SUNNY_BRAIN_PROVIDER=ollama` (o unset): con `=groq` los mocks de `ollama.Client.chat` no interceptan las llamadas y los tests fallan con 429. Documentar en CONTRIBUTING o añadir fixture `conftest.py` que fuerce `ollama` durante pytest | Tests | Media | Abierto |
+| DEP-34 | Rate limiting TPM con Groq free tier durante `agent_loop`: el bucle de iteraciones rápidas consume TPM más rápido que el límite del tier; el cliente hace retry con backoff (no es fallo hard pero añade latencia, observados 2 retries por 429 en producción). Se resuelve con Dev tier de Groq o con Cerebras como provider alternativo | Brain / Provider | Baja | Abierto |
+| DEP-35 | Arquitectura multimodelo de minibrains — m1 (comprensión) / m2 (planificador) / m3 (agente visual) / m4 (OCR summarizer) con roles separados, provider Cerebras (OpenAI-compatible) y capa OCR Summarizer fail-safe que estructura el OCR crudo antes de cada iteración del bucle agente | Brain / Orchestrator | Alta | ✅ Resuelto |
 
 ---
 
@@ -478,4 +525,4 @@ El proyecto sigue un modelo multi-IA:
 
 ---
 
-*Sunny v0.1.0 — mayo 2026 · 612 tests · visión OCR+LLM · bucle agente visual · cerebro multi-provider (Ollama/Groq) · capa de enriquecimiento de UI*
+*Sunny v0.1.0 — mayo 2026 · 656 tests · visión OCR+LLM · bucle agente visual · arquitectura multimodelo de minibrains (Ollama/Groq/Cerebras) · OCR summarizer fail-safe · capa de enriquecimiento de UI · agente visual Discord validado en producción*

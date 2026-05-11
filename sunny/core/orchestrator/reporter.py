@@ -10,7 +10,7 @@ from rich.table import Table
 
 from sunny.core.execution.engine import ExecutionResult
 from sunny.core.logging.logger import get_logger
-from sunny.core.models.plan import ComprehensionResult
+from sunny.core.models.plan import ComprehensionResult, PlanV2
 
 log = get_logger("sunny.core.orchestrator.reporter")
 console = Console()
@@ -84,6 +84,43 @@ def report_validation_errors(errors: List[str]) -> None:
     body = "\n".join(f"  - {e}" for e in errors)
     console.print(Panel(body, title="[red]Plan inválido[/red]"))
     log.warning("report_validation_errors", errors_count=len(errors))
+
+
+def report_no_plan(plan: PlanV2, user_input: str) -> None:
+    """Informa al usuario de que la planificación no produjo pasos ejecutables.
+
+    Cubre dos casos: el planificador pidió aclaración (needs_clarification),
+    o devolvió un plan vacío para una intención no conversacional —
+    típicamente porque no existe ningún plugin que pueda cumplir la orden
+    (p. ej. enviar mensaje por Discord cuando no hay plugin de Discord).
+    """
+    if plan.needs_clarification:
+        body = (
+            f"El planificador necesita aclaración para esta orden.\n"
+            f"Intención detectada: [bold]{plan.intent}[/bold] "
+            f"(confianza {plan.confidence:.0%}).\n\n"
+            f"Reformula tu orden con más detalle o concreta qué quieres hacer."
+        )
+        title = "[yellow]Necesito aclaración[/yellow]"
+    else:
+        body = (
+            f"No hay ninguna acción disponible para la intención "
+            f"[bold]{plan.intent}[/bold] a partir de tu orden:\n"
+            f"  '{user_input}'\n\n"
+            f"Probablemente ningún plugin instalado puede cumplir esta tarea "
+            f"(no existe un plugin para esa app, canal o servicio).\n"
+            f"Reformúlala con un objetivo que algún plugin pueda ejecutar, "
+            f"o registra uno nuevo en sunny/modules/."
+        )
+        title = "[red]Sin plan ejecutable[/red]"
+
+    console.print(Panel(body, title=title, expand=False))
+    log.warning(
+        "report_no_plan",
+        intent=plan.intent,
+        needs_clarification=plan.needs_clarification,
+        confidence=plan.confidence,
+    )
 
 def _render_semantic_output(result: ExecutionResult) -> None:
     for step in result.steps:
