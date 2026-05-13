@@ -11,6 +11,16 @@ _ROLE_ENVS = (
     "SUNNY_M2_PROVIDER", "SUNNY_M2_MODEL",
     "SUNNY_M3_PROVIDER", "SUNNY_M3_MODEL",
     "SUNNY_M4_PROVIDER", "SUNNY_M4_MODEL",
+    "SUNNY_M5_PROVIDER", "SUNNY_M5_MODEL",
+    "SUNNY_M6_PROVIDER", "SUNNY_M6_MODEL",
+    "SUNNY_M7_PROVIDER", "SUNNY_M7_MODEL",
+    "SUNNY_M1_FALLBACK_PROVIDER", "SUNNY_M1_FALLBACK_MODEL",
+    "SUNNY_M2_FALLBACK_PROVIDER", "SUNNY_M2_FALLBACK_MODEL",
+    "SUNNY_M3_FALLBACK_PROVIDER", "SUNNY_M3_FALLBACK_MODEL",
+    "SUNNY_M4_FALLBACK_PROVIDER", "SUNNY_M4_FALLBACK_MODEL",
+    "SUNNY_M5_FALLBACK_PROVIDER", "SUNNY_M5_FALLBACK_MODEL",
+    "SUNNY_M6_FALLBACK_PROVIDER", "SUNNY_M6_FALLBACK_MODEL",
+    "SUNNY_M7_FALLBACK_PROVIDER", "SUNNY_M7_FALLBACK_MODEL",
 )
 
 
@@ -20,6 +30,7 @@ def _clean_role_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
 
 def _stub_cerebras(monkeypatch):
@@ -35,10 +46,23 @@ def _stub_cerebras(monkeypatch):
     )
 
 
-def test_brain_role_enum_has_four_values():
-    assert len(list(BrainRole)) == 4
+def _stub_anthropic(monkeypatch):
+    """Evita que AnthropicProvider exija ANTHROPIC_API_KEY al instanciar."""
+
+    def fake_init(self, api_key=None, model=None, client=None, thinking=None):
+        self._model = model or "stub-model"
+        self._client = object()
+        self._thinking_enabled = True
+
+    monkeypatch.setattr(
+        "sunny.brain.providers.anthropic_provider.AnthropicProvider.__init__",
+        fake_init,
+    )
+
+
+def test_brain_role_enum_has_legacy_single_turn_roles():
     names = {r.name for r in BrainRole}
-    assert names == {"COMPREHENSION", "PLANNING", "GUI_AGENT", "OCR_SUMMARIZER"}
+    assert {"COMPREHENSION", "PLANNING", "GUI_AGENT", "OCR_SUMMARIZER"}.issubset(names)
 
 
 def test_get_provider_for_role_comprehension_default_is_ollama():
@@ -53,22 +77,22 @@ def test_get_provider_for_role_ocr_summarizer_default_is_ollama():
     assert p._model == "qwen2.5:3b"
 
 
-def test_get_provider_for_role_planning_default_is_cerebras(monkeypatch):
-    _stub_cerebras(monkeypatch)
-    from sunny.brain.providers.cerebras_provider import CerebrasProvider
+def test_get_provider_for_role_planning_default_is_anthropic(monkeypatch):
+    _stub_anthropic(monkeypatch)
+    from sunny.brain.providers.anthropic_provider import AnthropicProvider
 
     p = get_provider_for_role(BrainRole.PLANNING)
-    assert isinstance(p, CerebrasProvider)
-    assert p._model == "llama3.1-8b"
+    assert isinstance(p, AnthropicProvider)
+    assert p._model == "claude-sonnet-4-6"
 
 
-def test_get_provider_for_role_gui_agent_default_is_cerebras(monkeypatch):
-    _stub_cerebras(monkeypatch)
-    from sunny.brain.providers.cerebras_provider import CerebrasProvider
+def test_get_provider_for_role_gui_agent_default_is_anthropic(monkeypatch):
+    _stub_anthropic(monkeypatch)
+    from sunny.brain.providers.anthropic_provider import AnthropicProvider
 
     p = get_provider_for_role(BrainRole.GUI_AGENT)
-    assert isinstance(p, CerebrasProvider)
-    assert p._model == "llama3.1-8b"
+    assert isinstance(p, AnthropicProvider)
+    assert p._model == "claude-sonnet-4-6"
 
 
 def test_get_provider_for_role_respects_provider_override(monkeypatch):

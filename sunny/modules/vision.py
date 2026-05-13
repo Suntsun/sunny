@@ -9,6 +9,7 @@ import mss
 import pytesseract
 from PIL import Image
 
+from sunny.brain.factory import BrainRole, get_provider_for_role
 from sunny.core.logging.logger import get_logger
 from sunny.core.plugins.base import PluginBase, PluginResult
 
@@ -132,7 +133,6 @@ class VisionPlugin(PluginBase):
             return self._get_screen_state(region)
 
         import time
-        from sunny.brain.ollama_client import call_llm, DEFAULT_MODEL
 
         t0 = time.perf_counter()
         screenshot_data = self._screenshot(region)
@@ -151,16 +151,16 @@ class VisionPlugin(PluginBase):
             f"OCR text extracted from the screen:\n\n{spatial_map}\n\n"
             "Describe what is visible on the screen based on this text."
         )
-        description, stats = call_llm(
+        provider = get_provider_for_role(BrainRole.OCR_SUMMARIZER)
+        description, stats = provider.call_text(
             user_prompt=user_prompt,
             system_prompt=system,
-            json_mode=False,
         )
         latency_ms = int((time.perf_counter() - t0) * 1000)
         return {
             "description": description,
             "screenshot_path": screenshot_data["path"],
-            "model_used": f"ocr+{DEFAULT_MODEL}",
+            "model_used": f"ocr+{getattr(provider, '_model', 'unknown')}",
             "latency_ms": latency_ms,
         }
 
@@ -174,7 +174,6 @@ class VisionPlugin(PluginBase):
             raise ValueError("'question' es obligatorio y no puede estar vacío")
 
         import time
-        from sunny.brain.ollama_client import call_llm, DEFAULT_MODEL
 
         t0 = time.perf_counter()
         screenshot_data = self._screenshot(region)
@@ -191,17 +190,17 @@ class VisionPlugin(PluginBase):
             f"OCR text extracted from the screen:\n\n{spatial_map}\n\n"
             f"Question: {question}"
         )
-        answer, stats = call_llm(
+        provider = get_provider_for_role(BrainRole.OCR_SUMMARIZER)
+        answer, stats = provider.call_text(
             user_prompt=user_prompt,
             system_prompt=system,
-            json_mode=False,
         )
         latency_ms = int((time.perf_counter() - t0) * 1000)
         return {
             "answer": answer,
             "question": question,
             "screenshot_path": screenshot_data["path"],
-            "model_used": f"ocr+{DEFAULT_MODEL}",
+            "model_used": f"ocr+{getattr(provider, '_model', 'unknown')}",
             "latency_ms": latency_ms,
         }
 

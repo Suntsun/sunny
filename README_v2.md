@@ -2,7 +2,7 @@
 
 > Asistente de automatización de escritorio con IA para Windows 11 — 100% local, sin datos en la nube.
 
-![Tests](https://img.shields.io/badge/tests-656%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
+![Tests](https://img.shields.io/badge/tests-786%20passing-brightgreen) ![Python](https://img.shields.io/badge/python-3.14-blue) ![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey) ![Estado](https://img.shields.io/badge/estado-alpha%20funcional-orange)
 
 ---
 
@@ -75,11 +75,25 @@ Para activar el provider Groq como cerebro alternativo, instalar el extra:
 pip install -e .[groq]
 ```
 
-Para activar el provider Cerebras (cloud, API OpenAI-compatible, usado por defecto en los roles m2 y m3 de la arquitectura minibrains):
+Para activar el provider Cerebras (cloud, API OpenAI-compatible):
 
 ```powershell
-pip install -e .[cerebras]
+pip install -e ".[cerebras]"
 ```
+
+Para activar el provider Anthropic Claude (cloud, SDK oficial, adaptive thinking):
+
+```powershell
+pip install -e ".[anthropic]"
+```
+
+Para activar el provider Google Gemini (cloud, SDK `google-genai`, dynamic thinking):
+
+```powershell
+pip install -e ".[gemini]"
+```
+
+> **Quoting en PowerShell:** los corchetes `[gemini]` son sintaxis especial. **Hay que usar comillas dobles** alrededor del path-con-extras o pip fallará silenciosamente con `ERROR: You must give at least one requirement to install`.
 
 ---
 
@@ -89,11 +103,22 @@ Sunny lee variables de entorno en arranque para seleccionar el cerebro y otros a
 
 | Variable | Default | Descripción |
 |---|---|---|
-| `SUNNY_BRAIN_PROVIDER` | `ollama` | Provider del LLM del cerebro (legacy, solo para `get_brain_provider()` y retrocompat). Valores: `ollama`, `groq`, `cerebras`. |
+| `SUNNY_BRAIN_PROVIDER` | `ollama` | Provider del LLM del cerebro (legacy, solo para `get_brain_provider()` y retrocompat). Valores: `ollama`, `groq`, `cerebras`, `anthropic`, `gemini`. |
 | `GROQ_API_KEY` | — | API key de Groq. **Obligatoria** si se usa `groq` como provider. También activa la capa de enriquecimiento (guía de UI para `agent_loop`) si está presente. |
 | `SUNNY_GROQ_MODEL` | `llama-3.3-70b-versatile` | Modelo de Groq usado por el provider y por la capa de enriquecimiento. |
 | `CEREBRAS_API_KEY` | — | API key de Cerebras. **Obligatoria** si algún rol usa `cerebras`. |
 | `SUNNY_CEREBRAS_MODEL` | `gpt-oss-120b` | Modelo de Cerebras usado por defecto si un rol selecciona `cerebras` sin `SUNNY_M{n}_MODEL`. Modelos disponibles: `gpt-oss-120b` (120B, producción), `llama3.1-8b` (8B, producción). |
+| `ANTHROPIC_API_KEY` | — | API key de Anthropic. **Obligatoria** si algún rol usa `anthropic`. |
+| `SUNNY_ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Modelo Anthropic por defecto si un rol selecciona `anthropic` sin `SUNNY_M{n}_MODEL`. |
+| `SUNNY_ANTHROPIC_THINKING` | `on` | Adaptive thinking. `off`/`0`/`false` lo desactiva (más barato, menos profundo). |
+| `GEMINI_API_KEY` | — | API key de Google AI Studio. **Obligatoria** si algún rol usa `gemini`. Se obtiene en https://aistudio.google.com/apikey. |
+| `SUNNY_GEMINI_MODEL` | `gemini-2.5-flash` | Modelo Gemini por defecto si un rol selecciona `gemini` sin `SUNNY_M{n}_MODEL`. Disponibles: `gemini-2.5-pro` (capable, thinking obligatorio), `gemini-2.5-flash` (rápido + thinking dinámico), `gemini-2.5-flash-lite` (ultra rápido, sin thinking). |
+| `SUNNY_GEMINI_THINKING` | `on` | Thinking dinámico (`thinking_budget=-1`). `off`/`0`/`false` lo fija a `0`. |
+| `SUNNY_AUTO_CONFIRM_DESTRUCTIVE` | — | Override para automatización: en non-TTY, combinado con `--yes`, auto-confirma planes destructivos sin pedir input. En TTY se ignora (el humano siempre es preguntado). **Footgun**: si se setea globalmente, scripts que pasen `--yes` borrarán archivos sin pedir nada. Aceptable: `1`, `true`, `yes`, `on`. |
+
+> **Nota Gemini free tier:** la cuota real medida en producción (mayo 2026) son **20 requests/día por modelo y proyecto** en Google AI Studio gratuito — no los 1500 que algunas referencias documentan. Para uso intensivo, usar Gemini como fallback secundario en lugar de primario. Ver DEP-40.
+
+> **Carga de `.env`:** desde mayo 2026, `cli.py` invoca `load_dotenv()` al arrancar — por tanto las variables `SUNNY_*`, `*_API_KEY` y `SUNNY_M{n}_*` pueden ponerse en `.env` en la raíz del repo y se leen automáticamente desde cualquier shell. Antes el archivo se ignoraba silenciosamente (DEP-37, resuelto).
 
 #### Arquitectura multimodelo — minibrains
 
@@ -189,7 +214,9 @@ sunny/
 │       ├── base.py            # BrainProvider (ABC)
 │       ├── ollama_provider.py # Wrapper sobre ollama_client (default local)
 │       ├── groq_provider.py   # Provider Groq (cloud, OpenAI-compatible)
-│       └── cerebras_provider.py # Provider Cerebras (cloud, OpenAI SDK + base_url custom)
+│       ├── cerebras_provider.py # Provider Cerebras (cloud, OpenAI SDK + base_url custom)
+│       ├── anthropic_provider.py # Provider Anthropic Claude (SDK anthropic, adaptive thinking)
+│       └── gemini_provider.py # Provider Google Gemini (SDK google-genai, dynamic thinking)
 ├── core/
 │   ├── execution/
 │   │   ├── engine.py          # Motor de ejecución por steps con timeout y threading
@@ -381,13 +408,14 @@ El planner añade la guía en el bloque `[GUÍA PREVIA]` antes de `[COMPRENSIÓN
 - La eliminación de archivos siempre usa la papelera de reciclaje; nunca se borra de forma permanente.
 - Por defecto (sin variables de entorno) el LLM corre en local vía Ollama: ningún dato abandona el equipo. Los roles m2 y m3 usan Cerebras por defecto (cloud); se pueden redirigir a Ollama con `SUNNY_M2_PROVIDER=ollama` y `SUNNY_M3_PROVIDER=ollama` para modo 100% local.
 - El stdin se drena antes de cada confirmación para evitar que comandos pegados en el REPL contaminen los prompts interactivos.
+- En non-TTY (CI, pipes, redirección): los planes destructivos abortan limpio con código 2 a menos que `SUNNY_AUTO_CONFIRM_DESTRUCTIVE=1` esté activo junto con `--yes`. El check de TTY requiere stdin **y** stdout (descubierto en producción: Bash-on-Windows reporta `stdin.isatty()=True` aunque sea contexto scripted; el chequeo conjunto elimina ese falso positivo). Ver DEP-38, DEP-43.
 
 ---
 
 ## Tests
 
 ```powershell
-pytest --tb=short -q      # 656 tests passing, ~30 s
+pytest --tb=short -q      # 786 tests passing, ~31 s
 ```
 
 ```
@@ -456,6 +484,15 @@ Los DEPs resueltos se mantienen como referencia histórica.
 | DEP-33 | Suite de tests asume `SUNNY_BRAIN_PROVIDER=ollama` (o unset): con `=groq` los mocks de `ollama.Client.chat` no interceptan las llamadas y los tests fallan con 429. Documentar en CONTRIBUTING o añadir fixture `conftest.py` que fuerce `ollama` durante pytest | Tests | Media | Abierto |
 | DEP-34 | Rate limiting TPM con Groq free tier durante `agent_loop`: el bucle de iteraciones rápidas consume TPM más rápido que el límite del tier; el cliente hace retry con backoff (no es fallo hard pero añade latencia, observados 2 retries por 429 en producción). Se resuelve con Dev tier de Groq o con Cerebras como provider alternativo | Brain / Provider | Baja | Abierto |
 | DEP-35 | Arquitectura multimodelo de minibrains — m1 (comprensión) / m2 (planificador) / m3 (agente visual) / m4 (OCR summarizer) con roles separados, provider Cerebras (OpenAI-compatible) y capa OCR Summarizer fail-safe que estructura el OCR crudo antes de cada iteración del bucle agente | Brain / Orchestrator | Alta | ✅ Resuelto |
+| DEP-36 | Provider Google Gemini (`gemini_provider.py`) con SDK `google-genai`, thinking dinámico (`thinking_budget=-1`), JSON mode por prompt engineering, mapeo `RESOURCE_EXHAUSTED`→`LLMConnectionError` para que el FallbackChainProvider lo trate como retryable. 25 tests unitarios mockeados. Fallback `gemini→ollama` validado bajo cuota agotada en producción | Brain | Alta | ✅ Resuelto |
+| DEP-37 | `.env` ignorado por falta de `load_dotenv()` en `cli.py`. La chuleta afirmaba "cargado automáticamente" pero nunca se implementó. Añadido al inicio de cli.py | CLI | Media | ✅ Resuelto |
+| DEP-38 | `--yes` rompía con `EOFError` en non-TTY al chocar con la confirmación del plan destructivo. Fix: helper `confirmation.can_confirm_interactively()` (requiere stdin **y** stdout TTY — Bash-on-Windows da falso positivo solo en stdin), guard antes de `confirm_plan` que aborta con `typer.Exit(2)` y mensaje claro. Override opcional para automatización: `SUNNY_AUTO_CONFIRM_DESTRUCTIVE=1` + `--yes`. El workaround viejo `printf 's\n' \| sunny ...` ya no aplica (y era frágil). | CLI | Alta | ✅ Resuelto |
+| DEP-39 | `os_control.open_app`/`close_app` no resuelve alias humanos: solo acepta `calc`, falla con `calculator` o `calculadora`. El reasoner LLM tiende a traducir nombres "humanos" → falla. Falta tabla de alias o fuzzy match | OS Control | Media | Abierto |
+| DEP-40 | Free tier real de `gemini-2.5-flash` en Google AI Studio es **20 RPD por proyecto** (mayo 2026), no los 1500 documentados en algunas fuentes. La chuleta `chuletasmodelo.txt` y el README quedan inservibles como recomendación para uso intensivo de Gemini como primario. Recomendar como fallback secundario | Docs | Baja | Abierto |
+| DEP-41 | Planner alucina paso extra `files.move` a ruta inventada `%USERPROFILE%\Recycle Bin` después de `delete_matching` al borrar una carpeta. End-state es correcto (carpeta va a papelera por send2trash) pero el plan es no-atómico y registra 1 fallo en el reporter. Manifestado con ollama-fallback (llama3.1-8b) en T17 del chain test; falta few-shot que enseñe `delete` como acción única para carpetas | Planner | Media | Abierto |
+| DEP-42 | `'charmap' codec can't encode character '✔/≥/…'` rompía stdout/stderr en Windows con cp1252. Fix: reconfigurar `sys.stdout` y `sys.stderr` a `utf-8` al inicio de `cli.py` (defensivo con try/except por si el stream no es texto). Resuelve también el traceback de `sunny --help` (que contenía ≥ en help text). | CLI | Media | ✅ Resuelto |
+| DEP-43 | `confirm_comprehension` tenía el mismo riesgo non-TTY que DEP-38: `input()` lanzaba EOFError ante baja confianza. Fix: en non-TTY con `--yes` se relaja el umbral de confianza (se confía en la comprensión, ya que el path destructivo sigue gateado por DEP-38). Sin `--yes` en non-TTY aborta con `typer.Exit(2)` y mensaje claro. | CLI | Alta | ✅ Resuelto |
+| DEP-44 | El LLM alucina valores reales en `intent=conversation` para queries fácticas: ej. `sunny "qué hora es"` → "La última vez que lo hice era a las . ¿Necesitas algo más?". El planner debería detectar queries del tipo hora/fecha/ubicación y enrutarlas a un plugin con tool real (`os_control.current_time`?) en lugar de a `intent=conversation`. Manifestado en producción durante test SKILL-08 Nivel 1. | Planner | Media | Abierto |
 
 ---
 
@@ -525,4 +562,4 @@ El proyecto sigue un modelo multi-IA:
 
 ---
 
-*Sunny v0.1.0 — mayo 2026 · 656 tests · visión OCR+LLM · bucle agente visual · arquitectura multimodelo de minibrains (Ollama/Groq/Cerebras) · OCR summarizer fail-safe · capa de enriquecimiento de UI · agente visual Discord validado en producción*
+*Sunny v0.1.0 — mayo 2026 · 786 tests · visión OCR+LLM · bucle agente visual · arquitectura multimodelo de minibrains (Ollama/Groq/Cerebras/Anthropic/Gemini) · OCR summarizer fail-safe · capa de enriquecimiento de UI · agente visual Discord validado en producción · CLI saneado para automatización non-TTY*

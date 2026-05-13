@@ -1,0 +1,298 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from typing import Any, Optional, Tuple, Type, TypeVar
+
+from pydantic import BaseModel, ValidationError
+
+from sunny.brain.ollama_client import (
+    LLMCallStats,
+    LLMConnectionError,
+    LLMError,
+    LLMTimeoutError,
+    LLMValidationError,
+)
+from sunny.brain.providers.base import BrainProvider
+from sunny.core.logging.logger import get_logger
+
+log = get_logger("sunny.brain.providers.anthropic")
+
+DEFAULT_ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
+ANTHROPIC_API_KEY_ENV: str = "ANTHROPIC_API_KEY"
+ANTHROPIC_MODEL_ENV: str = "SUNNY_ANTHROPIC_MODEL"
+ANTHROPIC_THINKING_ENV: str = "SUNNY_ANTHROPIC_THINKING"
+DEFAULT_MAX_TOKENS: int = 16000
+
+T = TypeVar("T", bound=BaseModel)
+
+
+def _load_anthropic_module() -> Any:
+    try:
+        import anthropic  # type: ignore
+        return anthropic
+    except ImportError as e:
+        raise ImportError(
+            "El paquete 'anthropic' no está instalado. Instálalo con "
+            "`pip install anthropic` o `pip install -e .[anthropic]` para activar "
+            "el provider Anthropic."
+        ) from e
+
+
+class AnthropicProvider(BrainProvider):
+    """BrainProvider que llama a la API de Anthropic (Claude).
+
+    Usa el SDK ``anthropic`` con ``client.messages.create()``. Soporta adaptive
+    thinking (default on, configurable vía SUNNY_ANTHROPIC_THINKING=off). El
+    JSON mode se enforza por prompt engineering (más robusto contra schemas
+    Pydantic variados que ``output_config.format``, que tiene restricciones).
+    El parámetro ``num_ctx`` se ignora — Anthropic no expone ese parámetro.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        client: Any = None,
+        thinking: Optional[bool] = None,
+    ) -> None:
+        self._model = model or os.environ.get(ANTHROPIC_MODEL_ENV, DEFAULT_ANTHROPIC_MODEL)
+        self._thinking_enabled = _resolve_thinking_flag(thinking)
+
+        if client is not None:
+            self._client = client
+            return
+
+        api_key = api_key or os.environ.get(ANTHROPIC_API_KEY_ENV)
+        if not api_key:
+            raise EnvironmentError(
+                f"Variable de entorno {ANTHROPIC_API_KEY_ENV} no definida. "
+                f"Establécela con tu API key de Anthropic antes de usar el "
+                f"provider anthropic."
+            )
+
+        anthropic_module = _load_anthropic_module()
+        self._client = anthropic_module.Anthropic(api_key=api_key)
+
+    def call_validated(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        schema: Type[T],
+        max_retries: int = 3,
+        temperature: float = 0.2,
+        timeout_sec: int = 120,
+        num_ctx: int = 16384,
+    ) -> Tuple[T, LLMCallStats]:
+        attempt = 0
+        last_raw = ""
+        last_errors: list = []
+
+        # Refuerzo del system prompt: pedir JSON estricto.
+        json_system = (
+            f"{system_prompt}\n\nIMPORTANTE: Responde EXCLUSIVAMENTE con un objeto "
+            f"JSON válido que cumpla el esquema solicitado. No incluyas texto antes "
+            f"o después del JSON, ni envoltorios markdown."
+        )
+
+        while attempt <= max_retries:
+            raw, stats = self._chat_once(
+                user_prompt=user_prompt,
+                system_prompt=json_system,
+                temperature=temperature,
+                timeout_sec=timeout_sec,
+            )
+
+            last_raw = raw
+            cleaned = _strip_code_fences(raw)
+            cleaned = _extract_json_object(cleaned)
+
+            try:
+                instance = schema.model_validate_json(cleaned)
+                stats.retries_used = attempt
+                return instance, stats
+            except (ValidationError, json.JSONDecodeError) as e:
+                last_errors = [str(e)]
+
+                if attempt == max_retries:
+                    log.error(
+                        "anthropic_validation_exhausted",
+                        error_type=type(e).__name__,
+                        error_msg=str(e),
+                    )
+                    raise LLMValidationError(
+                        "Validación fallida tras reintentos (anthropic)",
+                        last_raw=last_raw,
+                        last_errors=last_errors,
+                    )
+
+                log.warning(
+                    "anthropic_retry",
+                    attempt=attempt + 1,
+                    error_type=type(e).__name__,
+                    error_msg=str(e),
+                )
+
+                required_fields = list(schema.model_fields.keys())
+                user_prompt = (
+                    f"{user_prompt}\n\n[ERROR PREVIO]\n"
+                    f"La respuesta anterior falló validación: {str(e)}\n"
+                    f"El raw fue: {raw[:500]}\n"
+                    f"Campos requeridos por el esquema: {required_fields}\n"
+                    f"Reintenta produciendo JSON válido con exactamente esos campos."
+                )
+
+            attempt += 1
+
+        raise LLMValidationError("Unexpected failure (anthropic)", last_raw, last_errors)
+
+    def call_text(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        temperature: float = 0.5,
+        timeout_sec: int = 120,
+        num_ctx: int = 16384,
+    ) -> Tuple[str, LLMCallStats]:
+        return self._chat_once(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            timeout_sec=timeout_sec,
+        )
+
+    def _chat_once(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        temperature: float,
+        timeout_sec: int,
+    ) -> Tuple[str, LLMCallStats]:
+        kwargs: dict = {
+            "model": self._model,
+            "max_tokens": DEFAULT_MAX_TOKENS,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "timeout": timeout_sec,
+        }
+
+        if self._thinking_enabled:
+            # Adaptive thinking: Claude decide cuándo y cuánto pensar.
+            # No se pasa temperature: thinking + temperature son incompatibles
+            # en algunos modelos. El SDK acepta temperature pero la API puede
+            # ignorarla con thinking activo.
+            kwargs["thinking"] = {"type": "adaptive"}
+        else:
+            kwargs["temperature"] = temperature
+
+        t0 = time.perf_counter()
+        try:
+            response = self._client.messages.create(**kwargs)
+        except Exception as e:
+            mapped = _map_anthropic_error(e)
+            raise mapped
+        t1 = time.perf_counter()
+
+        # Extraer solo bloques de texto; ignorar thinking blocks.
+        content = _extract_text_content(response)
+        usage = getattr(response, "usage", None)
+        tokens_in = getattr(usage, "input_tokens", 0) if usage else 0
+        tokens_out = getattr(usage, "output_tokens", 0) if usage else 0
+
+        stats = LLMCallStats(
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=int((t1 - t0) * 1000),
+            retries_used=0,
+        )
+
+        log.info(
+            "anthropic_call",
+            model=self._model,
+            tokens_in=stats.tokens_in,
+            tokens_out=stats.tokens_out,
+            latency_ms=stats.latency_ms,
+            thinking=self._thinking_enabled,
+        )
+
+        return content, stats
+
+    def health_check(self) -> bool:
+        try:
+            self._client.models.list()
+            return True
+        except Exception as e:
+            log.warning(
+                "anthropic_health_check_failed",
+                error_type=type(e).__name__,
+                error_msg=str(e),
+            )
+            return False
+
+
+def _resolve_thinking_flag(explicit: Optional[bool]) -> bool:
+    """Decide si activar adaptive thinking.
+
+    Orden de precedencia:
+    1. Argumento explícito en el constructor (si no es None)
+    2. Variable de entorno SUNNY_ANTHROPIC_THINKING (off/false/0/no → False; resto → True)
+    3. Default: True (decisión del usuario en la fase de diseño)
+    """
+    if explicit is not None:
+        return explicit
+    raw = os.environ.get(ANTHROPIC_THINKING_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in ("off", "false", "0", "no", "")
+
+
+def _extract_text_content(response: Any) -> str:
+    """Concatena el texto de los bloques type=text, ignorando thinking blocks."""
+    content_blocks = getattr(response, "content", None) or []
+    pieces: list[str] = []
+    for block in content_blocks:
+        btype = getattr(block, "type", None)
+        if btype == "text":
+            text = getattr(block, "text", "")
+            if text:
+                pieces.append(text)
+    return "".join(pieces)
+
+
+def _map_anthropic_error(e: Exception) -> Exception:
+    """Mapea excepciones del SDK anthropic a las excepciones tipadas del proyecto.
+
+    Detecta por nombre de clase para no acoplar el módulo al SDK (permite
+    instalación opcional y mocks en tests sin importar el SDK real).
+    """
+    cls_name = type(e).__name__.lower()
+    msg_lower = str(e).lower()
+    haystack = f"{cls_name} {msg_lower}"
+
+    if "timeout" in haystack:
+        return LLMTimeoutError(str(e))
+    if "ratelimit" in cls_name or "rate_limit" in msg_lower or "429" in msg_lower:
+        # Rate limits son transitorios — se mapean a conexión para que el
+        # FallbackChainProvider los considere retryables.
+        return LLMConnectionError(str(e))
+    if "connection" in haystack or "connect" in haystack or "network" in haystack:
+        return LLMConnectionError(str(e))
+    if "apistatus" in cls_name or "api_status" in msg_lower:
+        return LLMError(str(e))
+    return LLMError(str(e))
+
+
+def _strip_code_fences(text: str) -> str:
+    text = re.sub(r"^```(?:json)?\s*\n?", "", text.strip(), flags=re.IGNORECASE)
+    text = re.sub(r"\n?```\s*$", "", text.strip())
+    return text.strip()
+
+
+def _extract_json_object(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return text
+    return text[start : end + 1]

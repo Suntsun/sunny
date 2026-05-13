@@ -12,7 +12,7 @@ log = get_logger("sunny.brain.factory")
 
 PROVIDER_ENV: str = "SUNNY_BRAIN_PROVIDER"
 DEFAULT_PROVIDER: str = "ollama"
-SUPPORTED_PROVIDERS = ("ollama", "groq", "cerebras")
+SUPPORTED_PROVIDERS = ("ollama", "groq", "cerebras", "anthropic", "gemini")
 
 
 class BrainRole(str, Enum):
@@ -26,6 +26,9 @@ class BrainRole(str, Enum):
     PLANNING = "planning"                # m2 — planificador capaz
     GUI_AGENT = "gui_agent"              # m3 — agente visual GUI
     OCR_SUMMARIZER = "ocr_summarizer"    # m4 — limpieza/estructura OCR
+    PERCEPTION = "perception"            # m5 — percepción de entorno vivo (reservado)
+    REASONER = "reasoner"                # m6 — razonador estratégico bucle continuo
+    CONTROLLER = "controller"            # m7 — traducción reactiva a acción concreta
 
 
 _ROLE_CONFIG: dict = {
@@ -40,20 +43,41 @@ _ROLE_CONFIG: dict = {
         "slot": "M2",
         "provider_env": "SUNNY_M2_PROVIDER",
         "model_env": "SUNNY_M2_MODEL",
-        "default_provider": "cerebras",
-        "default_model": "llama3.1-8b",
+        "default_provider": "anthropic",
+        "default_model": "claude-sonnet-4-6",
     },
     BrainRole.GUI_AGENT: {
         "slot": "M3",
         "provider_env": "SUNNY_M3_PROVIDER",
         "model_env": "SUNNY_M3_MODEL",
-        "default_provider": "cerebras",
-        "default_model": "llama3.1-8b",
+        "default_provider": "anthropic",
+        "default_model": "claude-sonnet-4-6",
     },
     BrainRole.OCR_SUMMARIZER: {
         "slot": "M4",
         "provider_env": "SUNNY_M4_PROVIDER",
         "model_env": "SUNNY_M4_MODEL",
+        "default_provider": "ollama",
+        "default_model": "qwen2.5:3b",
+    },
+    BrainRole.PERCEPTION: {
+        "slot": "M5",
+        "provider_env": "SUNNY_M5_PROVIDER",
+        "model_env": "SUNNY_M5_MODEL",
+        "default_provider": "ollama",
+        "default_model": "qwen2.5:3b",
+    },
+    BrainRole.REASONER: {
+        "slot": "M6",
+        "provider_env": "SUNNY_M6_PROVIDER",
+        "model_env": "SUNNY_M6_MODEL",
+        "default_provider": "anthropic",
+        "default_model": "claude-sonnet-4-6",
+    },
+    BrainRole.CONTROLLER: {
+        "slot": "M7",
+        "provider_env": "SUNNY_M7_PROVIDER",
+        "model_env": "SUNNY_M7_MODEL",
         "default_provider": "ollama",
         "default_model": "qwen2.5:3b",
     },
@@ -86,6 +110,16 @@ def get_brain_provider() -> BrainProvider:
         log.info("brain_provider_selected", provider="cerebras")
         return CerebrasProvider()
 
+    if name == "anthropic":
+        from sunny.brain.providers.anthropic_provider import AnthropicProvider
+        log.info("brain_provider_selected", provider="anthropic")
+        return AnthropicProvider()
+
+    if name == "gemini":
+        from sunny.brain.providers.gemini_provider import GeminiProvider
+        log.info("brain_provider_selected", provider="gemini")
+        return GeminiProvider()
+
     raise ValueError(
         f"{PROVIDER_ENV}='{name}' no reconocido. "
         f"Valores soportados: {', '.join(SUPPORTED_PROVIDERS)}."
@@ -108,6 +142,14 @@ def _instantiate_provider(provider_name: str, model: Optional[str]) -> BrainProv
     if provider_name == "cerebras":
         from sunny.brain.providers.cerebras_provider import CerebrasProvider
         return CerebrasProvider(model=model) if model else CerebrasProvider()
+
+    if provider_name == "anthropic":
+        from sunny.brain.providers.anthropic_provider import AnthropicProvider
+        return AnthropicProvider(model=model) if model else AnthropicProvider()
+
+    if provider_name == "gemini":
+        from sunny.brain.providers.gemini_provider import GeminiProvider
+        return GeminiProvider(model=model) if model else GeminiProvider()
 
     raise ValueError(
         f"Provider '{provider_name}' no reconocido. "

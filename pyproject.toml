@@ -26,6 +26,8 @@ dependencies = [
 [project.optional-dependencies]
 groq = ["groq"]
 cerebras = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.40.0"]
+gemini = ["google-genai>=1.0.0"]
 
 [project.scripts]
 sunny = "sunny.cli:app"

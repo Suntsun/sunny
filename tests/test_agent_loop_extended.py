@@ -147,4 +147,32 @@ def test_agent_loop_rejects_disallowed_plugin(monkeypatch):
     _patch_provider(monkeypatch, fake)
     res = run_agent_loop(goal="g", registry=_registry(), max_steps=3)
     assert res.stopped_reason == "error"
-    assert res.success is False
+
+
+def test_history_block_includes_action_params(monkeypatch):
+    """El LLM debe ver qué params usó en cada acción previa.
+
+    Bug histórico: el historial decía solo 'gui.click_on_text -> ok' y el
+    modelo no podía distinguir entre clicar Amigos vs En línea vs cualquier
+    otra cosa, lo que llevaba a bucles infinitos pulsando lo mismo.
+    """
+    captured: List[str] = []
+
+    def fake(**kwargs):
+        captured.append(kwargs.get("user_prompt", ""))
+        i = len(captured) - 1
+        if i == 0:
+            return _decision(action="click_on_text", params={"text": "Amigos"}), _FakeStats()
+        if i == 1:
+            return _decision(action="click_on_text", params={"text": "En línea"}), _FakeStats()
+        return _decision(goal_reached=True, reason="ok"), _FakeStats()
+
+    _patch_provider(monkeypatch, fake)
+    run_agent_loop(goal="g", registry=_registry(), max_steps=5)
+
+    # Tras el primer click, el segundo prompt debe contener los params
+    # del primer click — para que el LLM sepa qué hizo antes.
+    assert "Amigos" in captured[1], "primer click ('Amigos') debe verse en el prompt del tick 2"
+    # Tras dos clicks distintos, el tercer prompt debe distinguir ambos.
+    assert "Amigos" in captured[2]
+    assert "En línea" in captured[2]

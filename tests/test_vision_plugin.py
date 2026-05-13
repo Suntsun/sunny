@@ -246,28 +246,45 @@ def _patch_screenshot_with_ocr(monkeypatch, tmp_path):
     monkeypatch.setattr(v.pytesseract, "image_to_data", lambda im, lang, output_type: _fake_ocr_data())
 
 
+class _FakeProvider:
+    """Provider de mentira con call_text controlable."""
+    _model = "fake-model"
+
+    def __init__(self, response="(respuesta vacía)", error=None):
+        self._response = response
+        self._error = error
+        self.last_user_prompt = None
+        self.last_system_prompt = None
+
+    def call_text(self, user_prompt, system_prompt, **kw):
+        self.last_user_prompt = user_prompt
+        self.last_system_prompt = system_prompt
+        if self._error is not None:
+            raise self._error
+        return (self._response, _FakeStats())
+
+
+def _patch_provider(monkeypatch, provider):
+    """Sustituye get_provider_for_role en vision.py por uno que devuelve provider."""
+    monkeypatch.setattr(
+        "sunny.modules.vision.get_provider_for_role",
+        lambda role: provider,
+    )
+
+
 def test_describe_screen_calls_ocr_and_llm(monkeypatch, tmp_path, plugin):
     _patch_screenshot_with_ocr(monkeypatch, tmp_path)
-    captured = {}
-
-    def fake_call(user_prompt, system_prompt, json_mode):
-        captured["user_prompt"] = user_prompt
-        return ("Hay una ventana de Discord abierta con un canal General.", _FakeStats())
-
-    monkeypatch.setattr("sunny.brain.ollama_client.call_llm", fake_call)
+    provider = _FakeProvider("Hay una ventana de Discord abierta con un canal General.")
+    _patch_provider(monkeypatch, provider)
 
     r = plugin.execute("describe_screen", {"region": None}, {})
     assert r.success
-    assert "ocr" in captured["user_prompt"].lower() or "screen" in captured["user_prompt"].lower()
+    assert "ocr" in provider.last_user_prompt.lower() or "screen" in provider.last_user_prompt.lower()
 
 
 def test_describe_screen_returns_description_and_path(monkeypatch, tmp_path, plugin):
     _patch_screenshot_with_ocr(monkeypatch, tmp_path)
-
-    monkeypatch.setattr(
-        "sunny.brain.ollama_client.call_llm",
-        lambda *a, **kw: ("Hay un editor de texto abierto", _FakeStats()),
-    )
+    _patch_provider(monkeypatch, _FakeProvider("Hay un editor de texto abierto"))
 
     r = plugin.execute("describe_screen", {"region": None}, {})
     assert r.success
@@ -279,10 +296,7 @@ def test_describe_screen_returns_description_and_path(monkeypatch, tmp_path, plu
 
 def test_describe_screen_plugin_result_success(monkeypatch, tmp_path, plugin):
     _patch_screenshot_with_ocr(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        "sunny.brain.ollama_client.call_llm",
-        lambda *a, **kw: ("ok", _FakeStats()),
-    )
+    _patch_provider(monkeypatch, _FakeProvider("ok"))
     r = plugin.execute("describe_screen", {}, {})
     assert r.success and r.error is None
 
@@ -291,10 +305,7 @@ def test_describe_screen_propagates_llm_error(monkeypatch, tmp_path, plugin):
     _patch_screenshot_with_ocr(monkeypatch, tmp_path)
     from sunny.brain.ollama_client import LLMError
 
-    def boom(**kw):
-        raise LLMError("llm no disponible")
-
-    monkeypatch.setattr("sunny.brain.ollama_client.call_llm", boom)
+    _patch_provider(monkeypatch, _FakeProvider(error=LLMError("llm no disponible")))
 
     r = plugin.execute("describe_screen", {}, {})
     assert not r.success
@@ -303,13 +314,8 @@ def test_describe_screen_propagates_llm_error(monkeypatch, tmp_path, plugin):
 
 def test_analyze_screen_sends_question_to_llm(monkeypatch, tmp_path, plugin):
     _patch_screenshot_with_ocr(monkeypatch, tmp_path)
-    captured = {}
-
-    def fake_call(**kw):
-        captured["user_prompt"] = kw.get("user_prompt", "")
-        return ("Sí, hay tres botones", _FakeStats())
-
-    monkeypatch.setattr("sunny.brain.ollama_client.call_llm", fake_call)
+    provider = _FakeProvider("Sí, hay tres botones")
+    _patch_provider(monkeypatch, provider)
 
     r = plugin.execute(
         "analyze_screen",
@@ -317,16 +323,12 @@ def test_analyze_screen_sends_question_to_llm(monkeypatch, tmp_path, plugin):
         {},
     )
     assert r.success
-    assert "¿Cuántos botones hay?" in captured["user_prompt"]
+    assert "¿Cuántos botones hay?" in provider.last_user_prompt
 
 
 def test_analyze_screen_returns_answer_and_question(monkeypatch, tmp_path, plugin):
     _patch_screenshot_with_ocr(monkeypatch, tmp_path)
-
-    monkeypatch.setattr(
-        "sunny.brain.ollama_client.call_llm",
-        lambda *a, **kw: ("Tres botones grandes", _FakeStats()),
-    )
+    _patch_provider(monkeypatch, _FakeProvider("Tres botones grandes"))
 
     r = plugin.execute(
         "analyze_screen", {"question": "¿Cuántos botones hay?"}, {}
@@ -340,14 +342,31 @@ def test_analyze_screen_returns_answer_and_question(monkeypatch, tmp_path, plugi
 
 def test_analyze_screen_missing_question_raises(monkeypatch, tmp_path, plugin):
     _patch_screenshot_with_ocr(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        "sunny.brain.ollama_client.call_llm",
-        lambda *a, **kw: ("no debería llegar", _FakeStats()),
-    )
+    _patch_provider(monkeypatch, _FakeProvider("no debería llegar"))
 
     r = plugin.execute("analyze_screen", {"question": ""}, {})
     assert not r.success
     assert r.error_type == "ValueError"
+
+
+def test_vision_actions_route_through_ocr_summarizer_role(monkeypatch, tmp_path, plugin):
+    """Verifica el fix del bypass: vision.describe/analyze pasan por el factory
+    con BrainRole.OCR_SUMMARIZER, no por call_llm directo a Ollama."""
+    _patch_screenshot_with_ocr(monkeypatch, tmp_path)
+    captured_roles = []
+    provider = _FakeProvider("ok")
+
+    def fake_get(role):
+        captured_roles.append(role)
+        return provider
+
+    monkeypatch.setattr("sunny.modules.vision.get_provider_for_role", fake_get)
+
+    plugin.execute("describe_screen", {}, {})
+    plugin.execute("analyze_screen", {"question": "x"}, {})
+
+    from sunny.brain.factory import BrainRole
+    assert captured_roles == [BrainRole.OCR_SUMMARIZER, BrainRole.OCR_SUMMARIZER]
 
 
 def test_describe_and_analyze_registered_in_actions(plugin):

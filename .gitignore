@@ -29,3 +29,7 @@ Thumbs.db
 
 # Anomalías locales
 %LOCALAPPDATA%/
+
+# Scratch / WIP locales
+_migration/
+_prompts/

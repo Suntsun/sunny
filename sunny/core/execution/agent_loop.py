@@ -77,14 +77,15 @@ def _capture_screen_state(
 def _build_user_prompt(
     goal: str,
     screen_state: str,
-    history: List[StepExecutionResult],
+    decisions: List[LoopDecision],
+    results: List[StepExecutionResult],
 ) -> str:
     history_lines = []
-    for h in history:
-        status = "ok" if h.success else f"error: {h.error}"
-        params_repr = json.dumps(h.data.get("params", {})) if isinstance(h.data, dict) and "params" in (h.data or {}) else ""
+    for decision, result in zip(decisions, results):
+        status = "ok" if result.success else f"error: {result.error}"
+        params_repr = json.dumps(decision.params or {}, ensure_ascii=False)
         history_lines.append(
-            f"- {h.plugin}.{h.action} -> {status}"
+            f"- {result.plugin}.{result.action}({params_repr}) -> {status}"
         )
     history_block = "\n".join(history_lines) if history_lines else "(sin acciones previas)"
 
@@ -141,6 +142,7 @@ def run_agent_loop(
     log.info("agent_loop_start", goal=goal, max_steps=max_steps)
 
     steps_executed: List[StepExecutionResult] = []
+    decisions_made: List[LoopDecision] = []
     stopped_reason = "max_steps"
     success = False
     final_screen: Optional[str] = None
@@ -156,7 +158,7 @@ def run_agent_loop(
         screen_state, screenshot_path = _capture_screen_state(registry, context)
         final_screen = screen_state
         summarized_state = summarize_screen_state(screen_state, goal)
-        user_prompt = _build_user_prompt(goal, summarized_state, steps_executed)
+        user_prompt = _build_user_prompt(goal, summarized_state, decisions_made, steps_executed)
 
         try:
             decision, _stats = provider.call_validated(
@@ -192,6 +194,7 @@ def run_agent_loop(
 
         step = _decision_to_step(decision, step_index)
         step_result = _execute_step(step, registry, context)
+        decisions_made.append(decision)
         steps_executed.append(step_result)
 
         if not step_result.success:

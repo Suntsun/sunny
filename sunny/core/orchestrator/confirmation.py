@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from typing import Set
 
 from rich.console import Console
@@ -7,6 +9,34 @@ from rich.panel import Panel
 
 from sunny.core.logging.logger import get_logger
 from sunny.core.models.plan import ComprehensionResult, PlanV2
+
+
+def can_confirm_interactively() -> bool:
+    """True solo si stdin **y** stdout son TTY y por tanto la confirmación funciona.
+
+    Se requiere AMBOS porque:
+    - stdin → para que `input()` no haga EOFError
+    - stdout → para que el prompt sea visible al humano
+    Edge case (DEP-38): Bash-on-Windows conecta stdin a /dev/tty aunque el contexto
+    sea automatizado, dando stdin=True / stdout=False. Chequear ambos elimina ese
+    falso positivo. Si stdout está pipeado, no hay un humano leyendo → non-interactive.
+    """
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def auto_confirm_destructive_enabled() -> bool:
+    """True si SUNNY_AUTO_CONFIRM_DESTRUCTIVE está activado para automatización.
+
+    Solo el caller que ADEMÁS recibe --yes y está en non-TTY debe respetar esto.
+    En TTY el env var se ignora — el usuario interactivo siempre es preguntado.
+    Footgun: documentar warning explícito si se setea globalmente.
+    """
+    return os.getenv("SUNNY_AUTO_CONFIRM_DESTRUCTIVE", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 
 log = get_logger("sunny.core.orchestrator.confirmation")
 console = Console()

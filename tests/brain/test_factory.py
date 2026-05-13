@@ -42,11 +42,11 @@ def test_groq_selection_returns_groq_provider(monkeypatch):
 
 
 def test_unknown_provider_raises_valueerror(monkeypatch):
-    monkeypatch.setenv(PROVIDER_ENV, "anthropic")
+    monkeypatch.setenv(PROVIDER_ENV, "deepseek")
     with pytest.raises(ValueError) as excinfo:
         get_brain_provider()
     msg = str(excinfo.value)
-    assert "anthropic" in msg
+    assert "deepseek" in msg
     assert "ollama" in msg and "groq" in msg
 
 

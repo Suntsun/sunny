@@ -1,3 +1,4 @@
+import typer
 import pytest
 from unittest.mock import MagicMock
 
@@ -48,6 +49,9 @@ def mocked(monkeypatch):
     monkeypatch.setattr(cli._engine, "execute_plan", lambda p, r, context=None: state["execute"])
     monkeypatch.setattr(cli._confirmation, "confirm_comprehension", lambda c: state["confirm_comp"])
     monkeypatch.setattr(cli._confirmation, "confirm_plan", lambda p: state["confirm_plan"])
+    # Por defecto, simulamos TTY para preservar la semántica de los tests previos a DEP-38.
+    # Los tests que requieran non-TTY deben re-monkeypatchear este helper.
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: True)
 
     monkeypatch.setattr(cli._reporter, "report_execution", lambda r, conversation_text=None: calls["reports"].append(("execution", r, conversation_text)))
     monkeypatch.setattr(cli._reporter, "report_clarification", lambda c: calls["reports"].append(("clarification", c)))
@@ -190,3 +194,189 @@ def test_main_new_session_forces_new(monkeypatch):
     monkeypatch.setattr(cli, "_process_one", lambda u, r, yes=False: None)
 
     cli.main(ctx=ctx, order="hi", new_session=True, end_session=False, verbose=False, yes=False)
+
+
+# --- DEP-38: --yes + plan destructivo + non-TTY → typer.Exit limpio ----------
+
+def _destructive_plan() -> PlanV2:
+    return PlanV2(
+        intent="files",
+        confidence=0.95,
+        steps=[Step(step_id="s1", plugin="files", action="delete", params={"path": "x.txt"})],
+    )
+
+
+def test_yes_flag_aborts_cleanly_when_plan_is_destructive_in_non_tty(mocked, monkeypatch):
+    """DEP-38: stdin no-TTY + plan destructivo debe abortar con typer.Exit(2), no EOFError."""
+    state, calls = mocked
+    state["validate"] = ValidationResult(True, [], [], True)
+    state["plan"] = (_destructive_plan(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: False)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli._process_one("borra x.txt", None, yes=True)
+
+    assert exc_info.value.exit_code == 2
+    assert not any(r[0] == "execution" for r in calls["reports"])
+    assert not any(r[0] == "cancelled" for r in calls["reports"])
+
+
+def test_destructive_plan_with_tty_still_asks_confirmation(mocked, monkeypatch):
+    """En TTY el flujo destructivo sigue pidiendo confirmación interactiva (sin regresión)."""
+    state, calls = mocked
+    state["validate"] = ValidationResult(True, [], [], True)
+    state["plan"] = (_destructive_plan(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: True)
+    state["confirm_plan"] = True
+    cli._process_one("borra x.txt", None, yes=True)
+    assert any(r[0] == "execution" for r in calls["reports"])
+
+
+def test_destructive_plan_non_tty_without_yes_also_aborts(mocked, monkeypatch):
+    """Sin --yes, non-TTY + destructivo también aborta limpio (no es exclusivo de --yes)."""
+    state, calls = mocked
+    state["validate"] = ValidationResult(True, [], [], True)
+    state["plan"] = (_destructive_plan(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: False)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli._process_one("borra x.txt", None, yes=False)
+
+    assert exc_info.value.exit_code == 2
+
+
+def test_can_confirm_interactively_returns_bool():
+    """El helper debe devolver bool sin lanzar."""
+    from sunny.core.orchestrator import confirmation
+    result = confirmation.can_confirm_interactively()
+    assert isinstance(result, bool)
+
+
+# --- DEP-43: confirm_comprehension non-TTY -----------------------------------
+
+def _comp_low_conf(intent="files"):
+    return ComprehensionResult(
+        comprehension="x", intent=intent, assumptions=[],
+        confidence=0.6, needs_clarification=False,
+    )
+
+
+def test_yes_in_non_tty_auto_confirms_comprehension_regardless_of_confidence(mocked, monkeypatch):
+    """DEP-43: --yes + non-TTY + baja confianza → auto-confirma (no abort, no input)."""
+    state, calls = mocked
+    state["comprehend"] = (_comp_low_conf(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: False)
+
+    confirm_called = {"v": False}
+    monkeypatch.setattr(
+        cli._confirmation, "confirm_comprehension",
+        lambda c: confirm_called.__setitem__("v", True) or True,
+    )
+
+    cli._process_one("x", None, yes=True)
+
+    assert confirm_called["v"] is False  # no se intentó pedir input
+    assert any(r[0] == "execution" for r in calls["reports"])
+
+
+def test_low_confidence_in_non_tty_without_yes_aborts(mocked, monkeypatch):
+    """DEP-43: sin --yes + non-TTY + comprensión no-trivial → typer.Exit(2) limpio."""
+    state, calls = mocked
+    state["comprehend"] = (_comp_low_conf(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: False)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli._process_one("x", None, yes=False)
+
+    assert exc_info.value.exit_code == 2
+    assert not any(r[0] == "execution" for r in calls["reports"])
+
+
+def test_needs_clarification_in_non_tty_reports_normally(mocked, monkeypatch):
+    """DEP-43: needs_clarification es siempre safe (no input), report_clarification debe llegar."""
+    state, calls = mocked
+    state["comprehend"] = (_comp(needs_clarification=True), None)
+    state["confirm_comp"] = False  # confirm_comprehension retorna False por needs_clarification
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: False)
+
+    cli._process_one("ambiguo", None, yes=True)
+
+    assert any(r[0] == "clarification" for r in calls["reports"])
+    assert not any(r[0] == "execution" for r in calls["reports"])
+
+
+def test_low_confidence_in_tty_with_yes_still_asks(mocked, monkeypatch):
+    """En TTY el path conservador (preguntar si confianza < 0.9) se mantiene (sin regresión)."""
+    state, calls = mocked
+    state["comprehend"] = (_comp_low_conf(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: True)
+
+    confirm_called = {"v": False}
+    monkeypatch.setattr(
+        cli._confirmation, "confirm_comprehension",
+        lambda c: confirm_called.__setitem__("v", True) or True,
+    )
+
+    cli._process_one("x", None, yes=True)
+
+    assert confirm_called["v"] is True  # SÍ se llamó a confirm_comprehension
+
+
+# --- SUNNY_AUTO_CONFIRM_DESTRUCTIVE override (option 3 del handoff DEP-38) ----
+
+def test_destructive_plan_auto_confirms_when_env_var_set_with_yes_in_non_tty(mocked, monkeypatch):
+    """yes=True + non-TTY + SUNNY_AUTO_CONFIRM_DESTRUCTIVE=1 → ejecuta sin abort."""
+    state, calls = mocked
+    state["validate"] = ValidationResult(True, [], [], True)
+    state["plan"] = (_destructive_plan(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: False)
+    monkeypatch.setenv("SUNNY_AUTO_CONFIRM_DESTRUCTIVE", "1")
+
+    cli._process_one("borra x.txt", None, yes=True)
+
+    assert any(r[0] == "execution" for r in calls["reports"])
+    assert not any(r[0] == "cancelled" for r in calls["reports"])
+
+
+def test_destructive_plan_aborts_when_env_var_set_but_no_yes(mocked, monkeypatch):
+    """SUNNY_AUTO_CONFIRM_DESTRUCTIVE=1 sin --yes → aborta (requiere ambos signals)."""
+    state, calls = mocked
+    state["validate"] = ValidationResult(True, [], [], True)
+    state["plan"] = (_destructive_plan(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: False)
+    monkeypatch.setenv("SUNNY_AUTO_CONFIRM_DESTRUCTIVE", "1")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli._process_one("borra x.txt", None, yes=False)
+
+    assert exc_info.value.exit_code == 2
+
+
+def test_destructive_plan_in_tty_ignores_env_var(mocked, monkeypatch):
+    """En TTY el env var no relaja nada: sigue pidiendo confirmación interactiva."""
+    state, calls = mocked
+    state["validate"] = ValidationResult(True, [], [], True)
+    state["plan"] = (_destructive_plan(), None)
+    monkeypatch.setattr(cli._confirmation, "can_confirm_interactively", lambda: True)
+    monkeypatch.setenv("SUNNY_AUTO_CONFIRM_DESTRUCTIVE", "1")
+
+    confirm_called = {"v": False}
+    monkeypatch.setattr(
+        cli._confirmation, "confirm_plan",
+        lambda p: confirm_called.__setitem__("v", True) or True,
+    )
+
+    cli._process_one("borra x.txt", None, yes=True)
+
+    assert confirm_called["v"] is True  # confirm_plan SÍ se llamó
+
+
+def test_auto_confirm_destructive_helper_truthy_values(monkeypatch):
+    """El helper acepta '1', 'true', 'yes', 'on' (case-insensitive, trimmed)."""
+    from sunny.core.orchestrator import confirmation
+    for val in ("1", "true", "True", "yes", "ON", " 1 "):
+        monkeypatch.setenv("SUNNY_AUTO_CONFIRM_DESTRUCTIVE", val)
+        assert confirmation.auto_confirm_destructive_enabled() is True, f"Fallo con {val!r}"
+    for val in ("0", "false", "no", "off", "", "random"):
+        monkeypatch.setenv("SUNNY_AUTO_CONFIRM_DESTRUCTIVE", val)
+        assert confirmation.auto_confirm_destructive_enabled() is False, f"Fallo con {val!r}"

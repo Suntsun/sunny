@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import sys
 from typing import Optional
 
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
+
+# Windows cp1252 rompe con cualquier carácter Unicode fuera de Latin-1 (≥, ✔, …).
+# Reconfigurar stdout/stderr a UTF-8 evita UnicodeEncodeError al renderizar help,
+# panels de rich y logs. Defensivo por si stdout es un pipe sin .reconfigure.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
+
+# Cargar .env de la raíz del proyecto antes de tocar configuración. Necesario
+# para que SUNNY_M*_PROVIDER, *_API_KEY y demás se vean desde cualquier shell.
+load_dotenv()
 
 from sunny.brain.ollama_client import LLMError
 from sunny.core.execution import engine as _engine
@@ -71,14 +86,40 @@ def _process_one(user_input: str, registry: PluginRegistry, yes: bool = False) -
     try:
         comp_result, _ = _comprehension.comprehend(user_input)
 
-        # --yes: auto-confirmar comprensión si confianza alta y no necesita aclaración
-        auto = yes and comp_result.confidence >= AUTO_CONFIRM_THRESHOLD and not comp_result.needs_clarification
-        if not auto and not _confirmation.confirm_comprehension(comp_result):
-            if comp_result.needs_clarification:
-                _reporter.report_clarification(comp_result)
-            else:
-                _reporter.report_user_cancelled("comprensión rechazada")
-            return
+        # Auto-confirmar comprensión. En TTY: --yes + alta confianza. En non-TTY: --yes
+        # implica trust total (no hay alternativa entre confiar o abortar). Si needs_clarification,
+        # confirm_comprehension retorna False sin tocar stdin, así que es safe en non-TTY (DEP-43).
+        if comp_result.needs_clarification:
+            auto = False
+        elif yes and not _confirmation.can_confirm_interactively():
+            auto = True
+        else:
+            auto = yes and comp_result.confidence >= AUTO_CONFIRM_THRESHOLD
+
+        if not auto:
+            if not comp_result.needs_clarification and not _confirmation.can_confirm_interactively():
+                console.print(
+                    "[red]Comprensión requiere confirmación interactiva pero stdin no es TTY.[/red]"
+                )
+                console.print(
+                    f"[dim]Intent: {comp_result.intent} | confianza: {comp_result.confidence:.0%} | "
+                    f"needs_clarification: {comp_result.needs_clarification}[/dim]"
+                )
+                console.print(
+                    "[dim]Usa --yes para auto-confirmar comprensión en non-TTY, o ejecuta desde un TTY.[/dim]"
+                )
+                log.warning(
+                    "comprehension_non_tty_aborted",
+                    intent=comp_result.intent,
+                    confidence=comp_result.confidence,
+                )
+                raise typer.Exit(code=2)
+            if not _confirmation.confirm_comprehension(comp_result):
+                if comp_result.needs_clarification:
+                    _reporter.report_clarification(comp_result)
+                else:
+                    _reporter.report_user_cancelled("comprensión rechazada")
+                return
 
         plan_result, _ = _planner.plan(user_input, comp_result)
 
@@ -109,7 +150,34 @@ def _process_one(user_input: str, registry: PluginRegistry, yes: bool = False) -
             return
 
         if validation.effective_requires_confirmation:
-            if not _confirmation.confirm_plan(plan_result):
+            if not _confirmation.can_confirm_interactively():
+                steps_summary = ", ".join(f"{s.plugin}.{s.action}" for s in plan_result.steps)
+                if yes and _confirmation.auto_confirm_destructive_enabled():
+                    console.print(
+                        f"[yellow]Auto-confirmando plan destructivo vía SUNNY_AUTO_CONFIRM_DESTRUCTIVE: "
+                        f"{steps_summary}[/yellow]"
+                    )
+                    log.warning(
+                        "plan_destructive_auto_confirmed_via_env",
+                        steps_count=len(plan_result.steps),
+                        intent=plan_result.intent,
+                    )
+                else:
+                    console.print(
+                        "[red]Plan destructivo requiere confirmación interactiva pero stdin no es TTY.[/red]"
+                    )
+                    console.print(f"[dim]Plan ({len(plan_result.steps)} steps): {steps_summary}[/dim]")
+                    console.print(
+                        "[dim]Para automatización: --yes + SUNNY_AUTO_CONFIRM_DESTRUCTIVE=1. "
+                        "Sin override aborta con código 2.[/dim]"
+                    )
+                    log.warning(
+                        "plan_destructive_non_tty_aborted",
+                        steps_count=len(plan_result.steps),
+                        intent=plan_result.intent,
+                    )
+                    raise typer.Exit(code=2)
+            elif not _confirmation.confirm_plan(plan_result):
                 _reporter.report_user_cancelled("plan rechazado")
                 return
 
@@ -120,6 +188,8 @@ def _process_one(user_input: str, registry: PluginRegistry, yes: bool = False) -
         summary = f"ejecutado: {len(result.steps)} steps, success={result.success}"
         session.append_turn(user_input, summary)
 
+    except typer.Exit:
+        raise
     except LLMError as e:
         console.print(f"[red]Error LLM: {e}[/red]")
         _hint_fallback_if_transient(e)
@@ -155,7 +225,7 @@ def main(
     new_session: bool = typer.Option(False, "--new-session"),
     end_session: bool = typer.Option(False, "--end-session"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Mostrar logs INFO en consola"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Auto-confirmar comprensión si confianza ≥ 90% (no aplica a planes destructivos)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Auto-confirmar comprensión si confianza ≥ 90%. Planes destructivos requieren TTY interactivo o SUNNY_AUTO_CONFIRM_DESTRUCTIVE=1; sin ninguno aborta con código 2."),
 ) -> None:
     """Entrada principal CLI."""
     if ctx.invoked_subcommand is not None:
