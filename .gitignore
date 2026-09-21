@@ -33,3 +33,6 @@ Thumbs.db
 # Scratch / WIP locales
 _migration/
 _prompts/
+
+# Instaladores vendorizados
+get-pip.py
